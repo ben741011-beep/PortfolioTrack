@@ -1,4 +1,9 @@
-import { ObjectId, type Collection, type WithId } from "mongodb";
+import {
+  ObjectId,
+  type ClientSession,
+  type Collection,
+  type WithId,
+} from "mongodb";
 
 import clientPromise from "@/lib/mongodb";
 import {
@@ -29,6 +34,45 @@ export type UpdateStockPositionInput = Pick<
   StockPositionDocument,
   "shares" | "principal"
 >;
+
+export type StockTradeSide = "buy" | "sell";
+
+export interface StockTradeInput {
+  stockCode: string;
+  side: StockTradeSide;
+  shares: number;
+  price: number;
+}
+
+export const STOCK_TRANSACTION_FEE_RATE = 0.001425;
+
+export const STOCK_TRANSACTION_TAX_RATES: Record<StockAssetType, number> = {
+  stock: 0.003,
+  stockEtf: 0.001,
+  bondEtf: 0,
+};
+
+export type StockTradeCalculation = {
+  grossAmount: number;
+  transactionFee: number;
+  transactionTax: number;
+  cashAmount: number;
+};
+
+export type StockTradeResult =
+  | { status: "notFound" }
+  | { status: "insufficientShares"; availableShares: number }
+  | { status: "conflict" }
+  | {
+      status: "success";
+      document: WithId<StockPositionDocument> | null;
+      matchedCount: number;
+      modifiedCount: number;
+      upsertedCount: number;
+      deletedCount: number;
+      costBasisReduction: number;
+      realizedProfitLoss: number;
+    };
 
 export type StockPositionMutationResult =
   | { status: "notFound" | "conflict" }
@@ -142,6 +186,56 @@ export function parseUpdateStockPositionInput(
   };
 }
 
+export function parseStockTradeInput(value: unknown): StockTradeInput {
+  const input = parseObject(value, ["stockCode", "side", "shares", "price"]);
+  const shares = parseNumber(input.shares, "股票股數");
+
+  if (!Number.isSafeInteger(shares)) {
+    throw new TypeError("股票股數必須是正整數");
+  }
+
+  if (input.side !== "buy" && input.side !== "sell") {
+    throw new TypeError("交易方向必須是 buy 或 sell");
+  }
+
+  const price = parseNumber(input.price, "每股成交價");
+  const grossAmount = shares * price;
+
+  if (!Number.isFinite(grossAmount) || grossAmount > Number.MAX_SAFE_INTEGER) {
+    throw new TypeError("交易金額超出可處理範圍");
+  }
+
+  return {
+    stockCode: normalizeStockCode(input.stockCode),
+    side: input.side,
+    shares,
+    price,
+  };
+}
+
+export function calculateStockTrade(
+  input: StockTradeInput,
+  assetType: StockAssetType,
+): StockTradeCalculation {
+  const grossAmount = input.shares * input.price;
+  const transactionFee = grossAmount * STOCK_TRANSACTION_FEE_RATE;
+  const transactionTax =
+    input.side === "sell"
+      ? grossAmount * STOCK_TRANSACTION_TAX_RATES[assetType]
+      : 0;
+  const cashAmount =
+    input.side === "buy"
+      ? grossAmount + transactionFee
+      : grossAmount - transactionFee - transactionTax;
+
+  return {
+    grossAmount,
+    transactionFee,
+    transactionTax,
+    cashAmount,
+  };
+}
+
 export function parseStockPositionId(value: string): ObjectId {
   if (!ObjectId.isValid(value)) {
     throw new TypeError("庫存 ID 格式不正確");
@@ -191,6 +285,168 @@ export async function insertStockPosition(document: StockPositionDocument) {
   }
 
   return inserted;
+}
+
+export async function findStockPositionByCode(stockCode: string) {
+  const collection = await getStockPositionCollection();
+  return collection.findOne({ stockCode });
+}
+
+export async function applyStockTrade(
+  input: StockTradeInput,
+  stock: Pick<StockPositionDocument, "stockCode" | "stockName" | "assetType">,
+  calculation: StockTradeCalculation,
+  session?: ClientSession,
+): Promise<StockTradeResult> {
+  const collection = await getStockPositionCollection();
+
+  if (input.side === "buy") {
+    const now = new Date();
+    const result = await collection.updateOne(
+      { stockCode: stock.stockCode },
+      {
+        $inc: {
+          shares: input.shares,
+          principal: calculation.cashAmount,
+        },
+        $set: { updatedAt: now },
+        $setOnInsert: {
+          stockName: stock.stockName,
+          assetType: stock.assetType,
+          createdAt: now,
+        },
+      },
+      { upsert: true, session },
+    );
+
+    const position = await collection.findOne(
+      { stockCode: stock.stockCode },
+      { session },
+    );
+
+    if (!position) {
+      throw new Error("買入後無法取得股票庫存");
+    }
+
+    const verified = await collection.findOne(
+      { _id: position._id },
+      { session },
+    );
+
+    if (!verified) {
+      throw new Error("買入後無法依庫存 ID 查回驗證");
+    }
+
+    return {
+      status: "success",
+      document: verified,
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+      upsertedCount: result.upsertedCount,
+      deletedCount: 0,
+      costBasisReduction: 0,
+      realizedProfitLoss: 0,
+    };
+  }
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const current = await collection.findOne(
+      { stockCode: input.stockCode },
+      { session },
+    );
+
+    if (!current) {
+      return { status: "notFound" };
+    }
+
+    if (current.shares < input.shares) {
+      return {
+        status: "insufficientShares",
+        availableShares: current.shares,
+      };
+    }
+
+    const costBasisReduction =
+      current.principal * (input.shares / current.shares);
+    const realizedProfitLoss = calculation.cashAmount - costBasisReduction;
+
+    if (current.shares === input.shares) {
+      const result = await collection.deleteOne(
+        {
+          _id: current._id,
+          shares: current.shares,
+          updatedAt: current.updatedAt,
+        },
+        { session },
+      );
+
+      if (result.deletedCount !== 1) {
+        continue;
+      }
+
+      const verified = await collection.findOne(
+        { _id: current._id },
+        { session },
+      );
+
+      if (verified) {
+        throw new Error("賣出後庫存仍存在，無法完成刪除驗證");
+      }
+
+      return {
+        status: "success",
+        document: null,
+        matchedCount: 1,
+        modifiedCount: 0,
+        upsertedCount: 0,
+        deletedCount: result.deletedCount,
+        costBasisReduction,
+        realizedProfitLoss,
+      };
+    }
+
+    const result = await collection.updateOne(
+      {
+        _id: current._id,
+        shares: current.shares,
+        updatedAt: current.updatedAt,
+      },
+      {
+        $set: {
+          shares: current.shares - input.shares,
+          principal: current.principal - costBasisReduction,
+          updatedAt: new Date(),
+        },
+      },
+      { session },
+    );
+
+    if (result.matchedCount !== 1) {
+      continue;
+    }
+
+    const verified = await collection.findOne(
+      { _id: current._id },
+      { session },
+    );
+
+    if (!verified) {
+      throw new Error("賣出後無法依庫存 ID 查回驗證");
+    }
+
+    return {
+      status: "success",
+      document: verified,
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+      upsertedCount: 0,
+      deletedCount: 0,
+      costBasisReduction,
+      realizedProfitLoss,
+    };
+  }
+
+  return { status: "conflict" };
 }
 
 export async function updateStockPosition(

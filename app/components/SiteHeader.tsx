@@ -1,6 +1,18 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+const navigationItems = [
+  { href: "/", label: "市場統計", compactLabel: "統計" },
+  { href: "/inventory", label: "庫存管理", compactLabel: "庫存" },
+  { href: "/transactions", label: "新增與買賣", compactLabel: "買賣" },
+  { href: "/dividends", label: "股息紀錄", compactLabel: "股息" },
+] as const;
 
 export function SiteHeader() {
+  const pathname = usePathname();
+
   return (
     <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/95 text-white shadow-sm backdrop-blur">
       <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
@@ -18,19 +30,26 @@ export function SiteHeader() {
           </span>
         </Link>
 
-        <nav aria-label="主要導覽" className="flex shrink-0 items-center gap-1 text-sm">
-          <Link
-            href="/"
-            className="rounded-lg px-3 py-2 font-medium text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
-          >
-            市場統計
-          </Link>
-          <Link
-            href="/inventory"
-            className="rounded-lg px-3 py-2 font-medium text-slate-300 transition hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
-          >
-            庫存管理
-          </Link>
+        <nav aria-label="主要導覽" className="flex shrink-0 items-center gap-0.5 text-xs sm:gap-1 sm:text-sm">
+          {navigationItems.map((item) => {
+            const isActive = pathname === item.href;
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={isActive ? "page" : undefined}
+                className={`rounded-lg px-2 py-2 font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 sm:px-3 ${
+                  isActive
+                    ? "bg-white/10 text-white"
+                    : "text-slate-300 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                <span className="sm:hidden">{item.compactLabel}</span>
+                <span className="hidden sm:inline">{item.label}</span>
+              </Link>
+            );
+          })}
         </nav>
       </div>
     </header>
