@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const navigationItems = [
   { href: "/", label: "市場統計", compactLabel: "統計" },
   { href: "/inventory", label: "庫存管理", compactLabel: "庫存" },
+  { href: "/us-inventory", label: "美股庫存", compactLabel: "美股" },
   { href: "/transactions", label: "新增與買賣", compactLabel: "買賣" },
   { href: "/dividends", label: "股息紀錄", compactLabel: "股息" },
 ] as const;
