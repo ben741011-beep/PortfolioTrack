@@ -17,6 +17,11 @@ export async function GET() {
 
     return NextResponse.json({
       items: records.map(serializeDividendRecord),
+      positions: positions.map((position) => ({
+        stockCode: position.stockCode,
+        stockName: position.stockName,
+        principal: position.principal,
+      })),
     });
   } catch (error) {
     console.error("Failed to list dividend records", error);

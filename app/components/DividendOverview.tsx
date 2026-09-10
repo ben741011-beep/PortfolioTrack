@@ -20,6 +20,13 @@ type DividendRecord = {
 
 type DividendResponse = {
   items: DividendRecord[];
+  positions: DividendPosition[];
+};
+
+type DividendPosition = {
+  stockCode: string;
+  stockName: string;
+  principal: number;
 };
 
 const statusFilters: Array<{
@@ -41,6 +48,11 @@ const numberFormatter = new Intl.NumberFormat("zh-TW", {
   maximumFractionDigits: 6,
 });
 
+const percentageFormatter = new Intl.NumberFormat("zh-TW", {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const dateFormatter = new Intl.DateTimeFormat("zh-TW", {
   timeZone: "Asia/Taipei",
   year: "numeric",
@@ -57,6 +69,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
   const [statusFilter, setStatusFilter] =
     useState<DividendStatusFilter>("all");
   const [records, setRecords] = useState<DividendRecord[]>([]);
+  const [positions, setPositions] = useState<DividendPosition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -77,13 +90,16 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
           throw new Error(data.error ?? "無法取得股息資料");
         }
 
-        if (!Array.isArray(data.items)) {
+        if (!Array.isArray(data.items) || !Array.isArray(data.positions)) {
           throw new Error("股息資料格式不正確");
         }
 
-        return data.items;
+        return data;
       })
-      .then((items) => setRecords(items))
+      .then((data) => {
+        setRecords(data.items);
+        setPositions(data.positions);
+      })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
@@ -133,6 +149,36 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
     [statusFilter, yearRecords],
   );
 
+  const totalPrincipal = useMemo(
+    () => positions.reduce((total, position) => total + position.principal, 0),
+    [positions],
+  );
+
+  const annualSummaries = useMemo(
+    () =>
+      years.map((year) => {
+        const annualRecords = records.filter(
+          (record) => record.dividendYear === year,
+        );
+        const paid = annualRecords
+          .filter((record) => record.status === "paid")
+          .reduce((total, record) => total + record.grossAmount, 0);
+        const pending = annualRecords
+          .filter((record) => record.status === "pending")
+          .reduce((total, record) => total + record.grossAmount, 0);
+        const total = paid + pending;
+
+        return {
+          year,
+          paid,
+          pending,
+          total,
+          yieldOnCost: totalPrincipal > 0 ? total / totalPrincipal : null,
+        };
+      }),
+    [records, totalPrincipal, years],
+  );
+
   const paidAmount = paidRecords.reduce(
     (total, record) => total + record.grossAmount,
     0,
@@ -141,6 +187,9 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
     (total, record) => total + record.grossAmount,
     0,
   );
+  const annualAmount = paidAmount + pendingAmount;
+  const annualYieldOnCost =
+    totalPrincipal > 0 ? annualAmount / totalPrincipal : null;
   const recordCounts: Record<DividendStatusFilter, number> = {
     all: yearRecords.length,
     paid: paidRecords.length,
@@ -171,7 +220,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
 
         <section
           aria-label={`${selectedYear} 年股息摘要`}
-          className="grid gap-3 md:grid-cols-3"
+          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
         >
           <article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm sm:p-6">
             <p className="text-xs font-medium text-slate-500">
@@ -198,10 +247,101 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
           <article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm sm:p-6">
             <p className="text-xs font-medium text-slate-500">全年合計</p>
             <p className="mt-2 text-2xl font-bold tabular-nums">
-              {currencyFormatter.format(paidAmount + pendingAmount)}
+              {currencyFormatter.format(annualAmount)}
             </p>
             <p className="mt-2 text-sm text-slate-500">已入帳＋待發放</p>
           </article>
+
+          <article className="rounded-xl border border-emerald-200 bg-emerald-950 p-5 text-white shadow-sm sm:p-6">
+            <p className="text-xs font-medium text-emerald-200">
+              {selectedYear} 年股息成本殖利率
+            </p>
+            <p className="mt-2 text-2xl font-bold tabular-nums">
+              {annualYieldOnCost === null
+                ? "—"
+                : `${percentageFormatter.format(annualYieldOnCost * 100)}%`}
+            </p>
+            <p className="mt-2 text-sm text-emerald-200">
+              以目前投入本金 {currencyFormatter.format(totalPrincipal)} 計算
+            </p>
+          </article>
+        </section>
+
+        <section
+          aria-labelledby="annual-dividend-analysis-title"
+          className="mt-6 rounded-2xl border border-slate-300 bg-white p-5 shadow-sm sm:p-6"
+        >
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-bold tracking-[0.14em] text-emerald-700">
+                年度分析
+              </p>
+              <h2
+                id="annual-dividend-analysis-title"
+                className="mt-1 text-xl font-bold text-slate-950"
+              >
+                股息與成本殖利率
+              </h2>
+            </div>
+            <p className="text-sm text-slate-500">
+              投入本金 {currencyFormatter.format(totalPrincipal)}
+            </p>
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {annualSummaries.map((summary) => (
+              <button
+                key={summary.year}
+                type="button"
+                onClick={() => setSelectedYear(summary.year)}
+                aria-pressed={selectedYear === summary.year}
+                className={`rounded-xl border p-4 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 sm:p-5 ${
+                  selectedYear === summary.year
+                    ? "border-emerald-300 bg-emerald-50"
+                    : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-bold text-slate-700">
+                      {summary.year} 年度股息
+                    </p>
+                    <p className="mt-1 text-xl font-bold text-slate-950 tabular-nums">
+                      {currencyFormatter.format(summary.total)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-medium text-slate-500">
+                      成本殖利率
+                    </p>
+                    <p className="mt-1 text-lg font-bold text-emerald-700 tabular-nums">
+                      {summary.yieldOnCost === null
+                        ? "—"
+                        : `${percentageFormatter.format(summary.yieldOnCost * 100)}%`}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-200 pt-4 text-sm">
+                  <p className="text-slate-500">
+                    已入帳
+                    <span className="mt-1 block font-bold text-emerald-700 tabular-nums">
+                      {currencyFormatter.format(summary.paid)}
+                    </span>
+                  </p>
+                  <p className="text-slate-500">
+                    待發放
+                    <span className="mt-1 block font-bold text-amber-700 tabular-nums">
+                      {currencyFormatter.format(summary.pending)}
+                    </span>
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <p className="mt-4 text-xs leading-5 text-slate-500">
+            成本殖利率＝該年度股息合計 ÷ 目前持股投入本金；年度股息包含已入帳與待發放金額。
+          </p>
         </section>
 
         <section className="mt-6 overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm">
