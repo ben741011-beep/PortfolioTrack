@@ -1,4 +1,8 @@
 import type { StockAssetType } from "@/lib/taiwan-stock";
+import {
+  listStockClosingPricesFetchedSince,
+  upsertStockClosingPrices,
+} from "@/models/StockClosingPrice";
 
 const TWSE_STOCK_DAY_URL =
   "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY";
@@ -56,6 +60,11 @@ function getTaipeiCandidateDates(): string[] {
   return [0, 1, 2].map((daysAgo) =>
     new Date(taipeiToday - daysAgo * 86_400_000).toISOString().slice(0, 10),
   );
+}
+
+function getTaipeiDayStart(): Date {
+  const [today] = getTaipeiCandidateDates();
+  return new Date(`${today}T00:00:00+08:00`);
 }
 
 function parsePrice(value: unknown): number | null {
@@ -195,6 +204,25 @@ export function calculateStockValuation(
 export async function getLatestClosingQuotes(
   stockCodes: string[],
 ): Promise<Map<string, ClosingQuote>> {
+  const uniqueStockCodes = [...new Set(stockCodes)];
+  const cachedDocuments = await listStockClosingPricesFetchedSince(
+    uniqueStockCodes,
+    getTaipeiDayStart(),
+  );
+  const cachedQuotes = new Map(
+    cachedDocuments.map((document) => [
+      document.stockCode,
+      { close: document.close, quoteDate: document.quoteDate },
+    ]),
+  );
+  const missingStockCodes = uniqueStockCodes.filter(
+    (stockCode) => !cachedQuotes.has(stockCode),
+  );
+
+  if (missingStockCodes.length === 0) {
+    return cachedQuotes;
+  }
+
   const candidateDates = getTaipeiCandidateDates();
   const allowedDates = new Set(candidateDates);
   let tpexQuotes = new Map<string, ClosingQuote>();
@@ -206,7 +234,7 @@ export async function getLatestClosingQuotes(
   }
 
   const quoteEntries = await Promise.all(
-    [...new Set(stockCodes)].map(async (stockCode) => {
+    missingStockCodes.map(async (stockCode) => {
       const tpexQuote = tpexQuotes.get(stockCode);
 
       if (tpexQuote && allowedDates.has(tpexQuote.quoteDate)) {
@@ -223,5 +251,13 @@ export async function getLatestClosingQuotes(
     }),
   );
 
-  return new Map(quoteEntries.filter((entry) => entry !== null));
+  const fetchedQuoteEntries = quoteEntries.filter(
+    (entry): entry is readonly [string, ClosingQuote] => entry !== null,
+  );
+
+  await upsertStockClosingPrices(
+    fetchedQuoteEntries.map(([stockCode, quote]) => ({ stockCode, ...quote })),
+  );
+
+  return new Map([...cachedQuotes, ...fetchedQuoteEntries]);
 }
