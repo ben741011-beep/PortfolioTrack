@@ -47,7 +47,9 @@ function getTaipeiTodayUtc(now: Date) {
 }
 
 function isPaid(event: ExternalDividendEvent, today: Date) {
-  return event.paymentDate !== null && event.paymentDate <= today;
+  const effectiveDate = event.paymentDate ?? event.exDividendDate;
+
+  return effectiveDate <= today;
 }
 
 function makeRecordKey(

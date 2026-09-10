@@ -7,6 +7,7 @@ import {
 } from "@/models/StockPosition";
 
 export const DIVIDEND_RECORD_COLLECTION = "dividendRecords";
+export const DIVIDEND_START_YEAR = 2025;
 
 export const DIVIDEND_SOURCES = [
   "twseStock",
@@ -148,7 +149,10 @@ export async function listDividendRecords(stockCodes: string[]) {
 
   const collection = await getDividendRecordCollection();
   return collection
-    .find({ stockCode: { $in: stockCodes } })
+    .find({
+      stockCode: { $in: stockCodes },
+      dividendYear: { $gte: DIVIDEND_START_YEAR },
+    })
     .sort({ paymentDate: -1, exDividendDate: -1 })
     .toArray();
 }

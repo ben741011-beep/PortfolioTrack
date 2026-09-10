@@ -1,15 +1,19 @@
-import type { DividendSource } from "@/models/DividendRecord";
+import {
+  DIVIDEND_START_YEAR,
+  type DividendSource,
+} from "@/models/DividendRecord";
 import type { StockPositionDocument } from "@/models/StockPosition";
 
 const TWSE_STOCK_DIVIDEND_URL =
   "https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL";
+const TWSE_STOCK_DIVIDEND_HISTORY_URL =
+  "https://www.twse.com.tw/rwd/zh/exRight/TWT49U";
 const TPEX_STOCK_DIVIDEND_URL =
   "https://www.tpex.org.tw/openapi/v1/tpex_exright_prepost";
 const TWSE_ETF_DIVIDEND_URL =
   "https://www.twse.com.tw/zh/ETFortune/dividendList";
 const TPEX_ETF_DIVIDEND_URL = "https://info.tpex.org.tw/api/etfExDiv";
 const SOURCE_TIMEOUT_MS = 12_000;
-const FIRST_SUPPORTED_YEAR = 2005;
 
 type JsonObject = Record<string, unknown>;
 
@@ -182,6 +186,66 @@ async function fetchTwseStockDividends(
   });
 }
 
+async function fetchTwseHistoricalStockDividends(
+  stockCodes: Set<string>,
+  currentYear: number,
+): Promise<ExternalDividendEvent[]> {
+  if (stockCodes.size === 0) {
+    return [];
+  }
+
+  const years = Array.from(
+    { length: currentYear - DIVIDEND_START_YEAR + 1 },
+    (_, index) => DIVIDEND_START_YEAR + index,
+  );
+  const payloads = await Promise.all(
+    years.map((year) => {
+      const query = new URLSearchParams({
+        startDate: `${year}0101`,
+        endDate: `${year}1231`,
+        response: "json",
+      });
+
+      return fetchJson(`${TWSE_STOCK_DIVIDEND_HISTORY_URL}?${query}`);
+    }),
+  );
+
+  return payloads.flatMap((payload): ExternalDividendEvent[] => {
+    if (!isJsonObject(payload) || !Array.isArray(payload.data)) {
+      throw new DividendSourceError("證交所股票歷史除息資料格式錯誤");
+    }
+
+    return payload.data.flatMap((row): ExternalDividendEvent[] => {
+      if (!Array.isArray(row) || row.length < 7 || row[6] !== "息") {
+        return [];
+      }
+
+      const stockCode = typeof row[1] === "string" ? row[1].trim() : "";
+      const exDividendDate = parseTaiwanDate(row[0]);
+      const dividendPerShare = parsePositiveNumber(row[5]);
+
+      if (
+        !stockCodes.has(stockCode) ||
+        !exDividendDate ||
+        dividendPerShare === null
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          stockCode,
+          source: "twseStock",
+          exDividendDate,
+          recordDate: null,
+          paymentDate: null,
+          dividendPerShare,
+        },
+      ];
+    });
+  });
+}
+
 async function fetchTpexStockDividends(
   stockCodes: Set<string>,
 ): Promise<ExternalDividendEvent[]> {
@@ -234,7 +298,7 @@ async function fetchTwseEtfDividends(
 ): Promise<ExternalDividendEvent[]> {
   const query = new URLSearchParams({
     stkNo: stockCode,
-    startDate: String(FIRST_SUPPORTED_YEAR),
+    startDate: String(DIVIDEND_START_YEAR),
     endDate: String(currentYear),
   });
   const html = await fetchText(`${TWSE_ETF_DIVIDEND_URL}?${query}`);
@@ -283,7 +347,7 @@ async function fetchTpexEtfDividends(
 ): Promise<ExternalDividendEvent[]> {
   const body = new URLSearchParams({
     stkNo: stockCode,
-    startDate: `${FIRST_SUPPORTED_YEAR}0101`,
+    startDate: `${DIVIDEND_START_YEAR}0101`,
     endDate: `${currentYear}1231`,
     lang: "zh-tw",
   });
@@ -355,17 +419,22 @@ export async function fetchDividendEventsForPositions(
   const etfCodes = positions
     .filter((position) => position.assetType !== "stock")
     .map((position) => position.stockCode);
-  const [twseStocks, tpexStocks, ...etfResults] = await Promise.all([
-    fetchTwseStockDividends(stockCodes),
-    fetchTpexStockDividends(stockCodes),
-    ...etfCodes.map((stockCode) =>
-      fetchEtfDividends(stockCode, currentYear),
-    ),
-  ]);
+  const [twseStocks, twseHistoricalStocks, tpexStocks, ...etfResults] =
+    await Promise.all([
+      fetchTwseStockDividends(stockCodes),
+      fetchTwseHistoricalStockDividends(stockCodes, currentYear),
+      fetchTpexStockDividends(stockCodes),
+      ...etfCodes.map((stockCode) =>
+        fetchEtfDividends(stockCode, currentYear),
+      ),
+    ]);
 
   return deduplicateEvents([
     ...twseStocks,
+    ...twseHistoricalStocks,
     ...tpexStocks,
     ...etfResults.flat(),
-  ]);
+  ]).filter(
+    (event) => event.exDividendDate.getUTCFullYear() >= DIVIDEND_START_YEAR,
+  );
 }
