@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { serializeUsStockPositionsWithValuations } from "@/lib/us-stock-position-view";
 import {
   deleteUsStockPosition,
   parseUpdateUsStockPositionInput,
@@ -50,8 +51,12 @@ export async function PATCH(
       return mutationError(result.status);
     }
 
+    const response = await serializeUsStockPositionsWithValuations([
+      result.document,
+    ]);
+
     return NextResponse.json({
-      item: serializeUsStockPosition(result.document),
+      item: response.items[0],
       matchedCount: 1,
       modifiedCount: result.modifiedCount,
     });

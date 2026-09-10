@@ -10,6 +10,7 @@ import {
   type StockAssetType,
   type StockPosition,
 } from "@/app/components/stock-ui";
+import { UsStockInitialPositionForm } from "@/app/components/UsStockInitialPositionForm";
 
 type Message = {
   text: string;
@@ -59,6 +60,9 @@ function MessageText({ message }: { message: Message | null }) {
 export function StockOperations() {
   const [operationMode, setOperationMode] = useState<"trade" | "initial">(
     "trade",
+  );
+  const [initialMarket, setInitialMarket] = useState<"taiwan" | "us">(
+    "taiwan",
   );
   const [initialStockCode, setInitialStockCode] = useState("");
   const [initialLookup, setInitialLookup] = useState<StockLookup | null>(null);
@@ -305,6 +309,36 @@ export function StockOperations() {
               </p>
             </div>
 
+            <fieldset className="mb-6">
+              <legend className="mb-2 text-sm font-semibold">市場分類</legend>
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1.5">
+                {(
+                  [
+                    { label: "台股", value: "taiwan" },
+                    { label: "美股", value: "us" },
+                  ] as const
+                ).map((market) => (
+                  <label key={market.value} className="cursor-pointer">
+                    <input
+                      type="radio"
+                      name="initialMarket"
+                      value={market.value}
+                      checked={initialMarket === market.value}
+                      onChange={() => {
+                        setInitialMarket(market.value);
+                        setInitialMessage(null);
+                      }}
+                      className="peer sr-only"
+                    />
+                    <span className="block rounded-lg px-4 py-2.5 text-center text-sm font-bold text-slate-600 transition peer-checked:bg-white peer-checked:text-slate-950 peer-checked:shadow-sm peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-emerald-600">
+                      {market.label}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {initialMarket === "taiwan" ? (
             <form onSubmit={createInitialPosition} className="space-y-5">
               <div>
                 <label
@@ -401,6 +435,9 @@ export function StockOperations() {
                 </button>
               </div>
             </form>
+            ) : (
+              <UsStockInitialPositionForm />
+            )}
           </section>
           ) : (
           <section className="rounded-2xl border border-slate-300 bg-white p-5 shadow-sm sm:p-7">

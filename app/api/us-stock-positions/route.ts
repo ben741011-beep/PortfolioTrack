@@ -2,12 +2,11 @@ import { MongoServerError } from "mongodb";
 import { NextResponse } from "next/server";
 
 import { findUsStockProfile, UsStockServiceError } from "@/lib/us-stock";
+import { serializeUsStockPositionsWithValuations } from "@/lib/us-stock-position-view";
 import {
   insertUsStockPosition,
   listUsStockPositions,
   parseCreateUsStockPositionInput,
-  serializeUsStockPosition,
-  summarizeUsStockPositions,
   type UsStockPositionDocument,
 } from "@/models/UsStockPosition";
 
@@ -16,11 +15,9 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const documents = await listUsStockPositions();
+    const response = await serializeUsStockPositionsWithValuations(documents);
 
-    return NextResponse.json({
-      items: documents.map(serializeUsStockPosition),
-      summary: summarizeUsStockPositions(documents),
-    });
+    return NextResponse.json(response);
   } catch (error) {
     console.error("Failed to list US stock positions", error);
     return NextResponse.json({ error: "讀取美股庫存失敗" }, { status: 500 });
@@ -59,9 +56,10 @@ export async function POST(request: Request) {
       updatedAt: now,
     };
     const inserted = await insertUsStockPosition(document);
+    const response = await serializeUsStockPositionsWithValuations([inserted]);
 
     return NextResponse.json(
-      { item: serializeUsStockPosition(inserted), insertedCount: 1 },
+      { item: response.items[0], insertedCount: 1 },
       { status: 201 },
     );
   } catch (error) {
