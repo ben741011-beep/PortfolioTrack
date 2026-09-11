@@ -45,10 +45,7 @@ export async function getStockClosingPriceCollection(): Promise<
     .collection<StockClosingPriceDocument>(STOCK_CLOSING_PRICE_COLLECTION);
 }
 
-export async function listStockClosingPricesFetchedSince(
-  stockCodes: string[],
-  fetchedSince: Date,
-) {
+export async function listStockClosingPrices(stockCodes: string[]) {
   if (stockCodes.length === 0) {
     return [];
   }
@@ -57,7 +54,6 @@ export async function listStockClosingPricesFetchedSince(
   return collection
     .find({
       stockCode: { $in: stockCodes },
-      fetchedAt: { $gte: fetchedSince },
     })
     .toArray();
 }

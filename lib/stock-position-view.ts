@@ -2,7 +2,7 @@ import type { WithId } from "mongodb";
 
 import {
   calculateStockValuation,
-  getLatestClosingQuotes,
+  getStoredClosingQuotes,
 } from "@/lib/stock-valuation";
 import {
   serializeStockPosition,
@@ -12,7 +12,7 @@ import {
 export async function serializeStockPositionsWithValuations(
   documents: WithId<StockPositionDocument>[],
 ) {
-  const quotes = await getLatestClosingQuotes(
+  const quotes = await getStoredClosingQuotes(
     documents.map((document) => document.stockCode),
   );
 

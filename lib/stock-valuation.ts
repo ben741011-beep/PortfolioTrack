@@ -1,6 +1,6 @@
 import type { StockAssetType } from "@/lib/taiwan-stock";
 import {
-  listStockClosingPricesFetchedSince,
+  listStockClosingPrices,
   upsertStockClosingPrices,
 } from "@/models/StockClosingPrice";
 
@@ -57,14 +57,9 @@ function getTaipeiCandidateDates(): string[] {
   );
   const taipeiToday = Date.UTC(values.year, values.month - 1, values.day);
 
-  return [0, 1, 2].map((daysAgo) =>
+  return Array.from({ length: 10 }, (_, daysAgo) =>
     new Date(taipeiToday - daysAgo * 86_400_000).toISOString().slice(0, 10),
   );
-}
-
-function getTaipeiDayStart(): Date {
-  const [today] = getTaipeiCandidateDates();
-  return new Date(`${today}T00:00:00+08:00`);
 }
 
 function parsePrice(value: unknown): number | null {
@@ -201,27 +196,24 @@ export function calculateStockValuation(
   };
 }
 
-export async function getLatestClosingQuotes(
+export async function getStoredClosingQuotes(
   stockCodes: string[],
 ): Promise<Map<string, ClosingQuote>> {
   const uniqueStockCodes = [...new Set(stockCodes)];
-  const cachedDocuments = await listStockClosingPricesFetchedSince(
-    uniqueStockCodes,
-    getTaipeiDayStart(),
-  );
-  const cachedQuotes = new Map(
-    cachedDocuments.map((document) => [
+  const storedDocuments = await listStockClosingPrices(uniqueStockCodes);
+
+  return new Map(
+    storedDocuments.map((document) => [
       document.stockCode,
       { close: document.close, quoteDate: document.quoteDate },
     ]),
   );
-  const missingStockCodes = uniqueStockCodes.filter(
-    (stockCode) => !cachedQuotes.has(stockCode),
-  );
+}
 
-  if (missingStockCodes.length === 0) {
-    return cachedQuotes;
-  }
+export async function refreshClosingQuotes(
+  stockCodes: string[],
+): Promise<Map<string, ClosingQuote>> {
+  const uniqueStockCodes = [...new Set(stockCodes)];
 
   const candidateDates = getTaipeiCandidateDates();
   const allowedDates = new Set(candidateDates);
@@ -234,7 +226,7 @@ export async function getLatestClosingQuotes(
   }
 
   const quoteEntries = await Promise.all(
-    missingStockCodes.map(async (stockCode) => {
+    uniqueStockCodes.map(async (stockCode) => {
       const tpexQuote = tpexQuotes.get(stockCode);
 
       if (tpexQuote && allowedDates.has(tpexQuote.quoteDate)) {
@@ -259,5 +251,5 @@ export async function getLatestClosingQuotes(
     fetchedQuoteEntries.map(([stockCode, quote]) => ({ stockCode, ...quote })),
   );
 
-  return new Map([...cachedQuotes, ...fetchedQuoteEntries]);
+  return new Map(fetchedQuoteEntries);
 }

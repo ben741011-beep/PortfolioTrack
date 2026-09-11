@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { ClosingPriceRefreshButton } from "@/app/components/ClosingPriceRefreshButton";
 import {
   currencyFormatter,
   numberFormatter,
@@ -65,8 +66,10 @@ const usStockAssetTypeLabels: Record<UsStockAssetType, string> = {
 
 export function UsStockInventory({
   exchangeRate,
+  onClosingPricesUpdated,
 }: {
   exchangeRate: DisplayExchangeRate | null;
+  onClosingPricesUpdated?: () => void;
 }) {
   const [items, setItems] = useState<UsStockPosition[]>([]);
   const [summary, setSummary] = useState<UsStockSummary>(EMPTY_SUMMARY);
@@ -173,13 +176,24 @@ export function UsStockInventory({
 
         <div>
           <section className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-5 py-5 sm:px-7">
-              <h2 className="text-lg font-bold">目前庫存</h2>
-              <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
-                <p>持股市值 ＝ 股數 × 最近收盤價</p>
-                <p>即時損益 ＝ 持股市值 − 投資金額</p>
-                <p>損益率 ＝ 即時損益 ÷ 投資金額</p>
+            <div className="flex flex-col gap-5 border-b border-slate-200 px-5 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-7">
+              <div>
+                <h2 className="text-lg font-bold">目前庫存</h2>
+                <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
+                  <p>頁面載入只讀取資料庫；按下更新按鈕才會抓取並寫入收盤價。</p>
+                  <p>持股市值 ＝ 股數 × 最近收盤價</p>
+                  <p>即時損益 ＝ 持股市值 − 投資金額</p>
+                  <p>損益率 ＝ 即時損益 ÷ 投資金額</p>
+                </div>
               </div>
+              <ClosingPriceRefreshButton
+                market="us"
+                disabled={isLoading || items.length === 0}
+                onUpdated={async () => {
+                  await loadPositions();
+                  onClosingPricesUpdated?.();
+                }}
+              />
             </div>
 
             {loadError ? (

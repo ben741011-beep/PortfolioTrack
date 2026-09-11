@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { ClosingPriceRefreshButton } from "@/app/components/ClosingPriceRefreshButton";
 import {
   assetTypeLabels,
   currencyFormatter,
@@ -12,43 +13,62 @@ import {
   type StockPosition,
 } from "@/app/components/stock-ui";
 
-export function StockInventory() {
+export function StockInventory({
+  onClosingPricesUpdated,
+}: {
+  onClosingPricesUpdated?: () => void;
+}) {
   const [items, setItems] = useState<StockPosition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
+  const loadPositions = useCallback(async (signal?: AbortSignal) => {
+    const response = await fetch("/api/stock-positions", {
+      cache: "no-store",
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(await readApiError(response));
+    }
+
+    const body = (await response.json()) as { items: StockPosition[] };
+
+    if (!Array.isArray(body.items)) {
+      throw new Error("台股庫存資料格式不正確");
+    }
+
+    setItems(body.items);
+    setLoadError("");
+  }, []);
+
   useEffect(() => {
     const controller = new AbortController();
 
-    async function loadPositions() {
-      try {
-        const response = await fetch("/api/stock-positions", {
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(await readApiError(response));
-        }
-
-        const body = (await response.json()) as { items: StockPosition[] };
-        setItems(body.items);
-        setLoadError("");
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-
-        setLoadError(error instanceof Error ? error.message : "讀取庫存失敗");
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
+    queueMicrotask(() => {
+      if (controller.signal.aborted) {
+        return;
       }
-    }
 
-    void loadPositions();
+      void loadPositions(controller.signal)
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+
+          setLoadError(
+            error instanceof Error ? error.message : "讀取庫存失敗",
+          );
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setIsLoading(false);
+          }
+        });
+    });
+
     return () => controller.abort();
-  }, []);
+  }, [loadPositions]);
 
   const totalPrincipal = items.reduce((total, item) => total + item.principal, 0);
   const totalHoldingMarketValue = items.reduce(
@@ -114,17 +134,28 @@ export function StockInventory() {
         </header>
 
         <section className="overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-5 py-5 sm:px-7">
-            <h2 className="text-lg font-bold">目前庫存</h2>
-            <div className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
-              <p>持股市值 ＝ 股數 × 最近收盤價 − 估算賣出手續費 − 交易稅</p>
-              <p>即時損益 ＝ 持股市值 − 投資金額</p>
-              <p>損益率 ＝ 即時損益 ÷ 投資金額</p>
-              <p>
-                手續費以 0.1425% 估算；交易稅：股票 0.3%、股票 ETF
-                0.1%、債券 ETF 0%。
-              </p>
+          <div className="flex flex-col gap-5 border-b border-slate-200 px-5 py-5 sm:flex-row sm:items-start sm:justify-between sm:px-7">
+            <div>
+              <h2 className="text-lg font-bold">目前庫存</h2>
+              <div className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
+                <p>頁面載入只讀取資料庫；按下更新按鈕才會抓取並寫入收盤價。</p>
+                <p>持股市值 ＝ 股數 × 最近收盤價 − 估算賣出手續費 − 交易稅</p>
+                <p>即時損益 ＝ 持股市值 − 投資金額</p>
+                <p>損益率 ＝ 即時損益 ÷ 投資金額</p>
+                <p>
+                  手續費以 0.1425% 估算；交易稅：股票 0.3%、股票 ETF
+                  0.1%、債券 ETF 0%。
+                </p>
+              </div>
             </div>
+            <ClosingPriceRefreshButton
+              market="tw"
+              disabled={isLoading || items.length === 0}
+              onUpdated={async () => {
+                await loadPositions();
+                onClosingPricesUpdated?.();
+              }}
+            />
           </div>
 
           {loadError ? (

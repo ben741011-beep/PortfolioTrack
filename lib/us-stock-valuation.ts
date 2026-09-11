@@ -1,7 +1,7 @@
 import "server-only";
 
 import {
-  listStockClosingPricesFetchedSince,
+  listStockClosingPrices,
   upsertStockClosingPrices,
 } from "@/models/StockClosingPrice";
 
@@ -32,6 +32,7 @@ type YahooFinanceChartResult = {
     exchangeTimezoneName?: unknown;
     currentTradingPeriod?: {
       regular?: {
+        start?: unknown;
         end?: unknown;
       };
     };
@@ -45,22 +46,6 @@ type YahooFinanceChartResult = {
 type YahooFinanceQuoteSeries = {
   close?: unknown;
 };
-
-function getTaipeiDayStart(): Date {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(
-    parts
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, part.value]),
-  );
-
-  return new Date(`${values.year}-${values.month}-${values.day}T00:00:00+08:00`);
-}
 
 function formatQuoteDate(timestamp: number, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -131,14 +116,12 @@ async function fetchYahooClosingQuote(
 
   const closeValues = series.close;
   const exchangeTimezoneName = result.meta.exchangeTimezoneName;
+  const regularSessionStart = result.meta.currentTradingPeriod?.regular?.start;
   const regularSessionEnd = result.meta.currentTradingPeriod?.regular?.end;
-  const currentSessionHasEnded =
-    typeof regularSessionEnd === "number" &&
-    Date.now() >= regularSessionEnd * 1_000;
-  const exchangeToday = formatQuoteDate(
-    Math.floor(Date.now() / 1_000),
-    exchangeTimezoneName,
-  );
+  const currentSessionDate =
+    typeof regularSessionStart === "number"
+      ? formatQuoteDate(regularSessionStart, exchangeTimezoneName)
+      : null;
   const quotes = result.timestamp.flatMap((rawTimestamp, index) => {
     const rawClose = closeValues[index];
 
@@ -155,8 +138,12 @@ async function fetchYahooClosingQuote(
       rawTimestamp,
       exchangeTimezoneName,
     );
+    const quoteSessionEnd =
+      quoteDate === currentSessionDate && typeof regularSessionEnd === "number"
+        ? regularSessionEnd
+        : rawTimestamp + 6.5 * 60 * 60;
 
-    if (!currentSessionHasEnded && quoteDate === exchangeToday) {
+    if (Date.now() < quoteSessionEnd * 1_000) {
       return [];
     }
 
@@ -182,30 +169,27 @@ export function calculateUsStockValuation(
   };
 }
 
-export async function getLatestUsClosingQuotes(
+export async function getStoredUsClosingQuotes(
   stockCodes: string[],
 ): Promise<Map<string, ClosingQuote>> {
   const uniqueStockCodes = [...new Set(stockCodes)];
-  const cachedDocuments = await listStockClosingPricesFetchedSince(
-    uniqueStockCodes,
-    getTaipeiDayStart(),
-  );
-  const cachedQuotes = new Map(
-    cachedDocuments.map((document) => [
+  const storedDocuments = await listStockClosingPrices(uniqueStockCodes);
+
+  return new Map(
+    storedDocuments.map((document) => [
       document.stockCode,
       { close: document.close, quoteDate: document.quoteDate },
     ]),
   );
-  const missingStockCodes = uniqueStockCodes.filter(
-    (stockCode) => !cachedQuotes.has(stockCode),
-  );
+}
 
-  if (missingStockCodes.length === 0) {
-    return cachedQuotes;
-  }
+export async function refreshUsClosingQuotes(
+  stockCodes: string[],
+): Promise<Map<string, ClosingQuote>> {
+  const uniqueStockCodes = [...new Set(stockCodes)];
 
   const quoteEntries = await Promise.all(
-    missingStockCodes.map(async (stockCode) => {
+    uniqueStockCodes.map(async (stockCode) => {
       try {
         const quote = await fetchYahooClosingQuote(stockCode);
         return quote ? ([stockCode, quote] as const) : null;
@@ -223,5 +207,5 @@ export async function getLatestUsClosingQuotes(
     fetchedQuoteEntries.map(([stockCode, quote]) => ({ stockCode, ...quote })),
   );
 
-  return new Map([...cachedQuotes, ...fetchedQuoteEntries]);
+  return new Map(fetchedQuoteEntries);
 }

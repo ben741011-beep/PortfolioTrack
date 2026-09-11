@@ -16,12 +16,16 @@ export function InventoryTabs({ market }: { market: InventoryMarket }) {
   const [exchangeRate, setExchangeRate] = useState<DisplayExchangeRate | null>(
     null,
   );
+  const [closingPriceVersion, setClosingPriceVersion] = useState(0);
   const handleExchangeRateChange = useCallback(
     (nextExchangeRate: DisplayExchangeRate) => {
       setExchangeRate(nextExchangeRate);
     },
     [],
   );
+  const handleClosingPricesUpdated = useCallback(() => {
+    setClosingPriceVersion((version) => version + 1);
+  }, []);
   const tabs = [
     { market: "tw", href: "/inventory", label: "台股庫存" },
     { market: "us", href: "/inventory?market=us", label: "美股庫存" },
@@ -31,6 +35,7 @@ export function InventoryTabs({ market }: { market: InventoryMarket }) {
     <>
       <PortfolioTotalSummary
         onExchangeRateChange={handleExchangeRateChange}
+        refreshToken={closingPriceVersion}
       />
       <div className="border-b border-slate-300 bg-slate-100 px-4 pt-6 sm:px-6 lg:px-8">
         <nav
@@ -58,9 +63,14 @@ export function InventoryTabs({ market }: { market: InventoryMarket }) {
         </nav>
       </div>
       {market === "us" ? (
-        <UsStockInventory exchangeRate={exchangeRate} />
+        <UsStockInventory
+          exchangeRate={exchangeRate}
+          onClosingPricesUpdated={handleClosingPricesUpdated}
+        />
       ) : (
-        <StockInventory />
+        <StockInventory
+          onClosingPricesUpdated={handleClosingPricesUpdated}
+        />
       )}
     </>
   );

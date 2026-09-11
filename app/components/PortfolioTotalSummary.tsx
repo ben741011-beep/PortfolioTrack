@@ -26,8 +26,10 @@ type PortfolioSummaryResponse = {
 
 export function PortfolioTotalSummary({
   onExchangeRateChange,
+  refreshToken = 0,
 }: {
   onExchangeRateChange?: (exchangeRate: DisplayExchangeRate) => void;
+  refreshToken?: number;
 }) {
   const [data, setData] = useState<PortfolioSummaryResponse | null>(null);
   const [error, setError] = useState("");
@@ -78,7 +80,7 @@ export function PortfolioTotalSummary({
     queueMicrotask(() => void loadSummary(controller.signal));
 
     return () => controller.abort();
-  }, [loadSummary]);
+  }, [loadSummary, refreshToken]);
 
   const summaryCards = data
     ? [
