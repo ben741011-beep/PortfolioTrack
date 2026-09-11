@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { readApiError } from "@/app/components/stock-ui";
 
 type DividendStatusFilter = "all" | "paid" | "pending";
 type DividendStatus = Exclude<DividendStatusFilter, "all">;
@@ -28,6 +30,22 @@ type DividendPosition = {
   stockName: string;
   principal: number;
 };
+
+type DividendSyncResponse = {
+  positionCount: number;
+  fetchedCount: number;
+  insertedCount: number;
+  modifiedCount: number;
+  matchedCount: number;
+  skippedCount: number;
+  verifiedCount: number;
+  syncedAt: string;
+};
+
+type RefreshStatus = {
+  type: "success" | "error";
+  message: string;
+} | null;
 
 const statusFilters: Array<{
   value: DividendStatusFilter;
@@ -72,51 +90,98 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
   const [positions, setPositions] = useState<DividendPosition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshStatus, setRefreshStatus] = useState<RefreshStatus>(null);
+
+  const loadDividendData = useCallback(async (signal?: AbortSignal) => {
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const response = await fetch("/api/dividends", {
+        cache: "no-store",
+        signal,
+      });
+      const data = (await response.json()) as DividendResponse & {
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error ?? "無法取得股息資料");
+      }
+
+      if (!Array.isArray(data.items) || !Array.isArray(data.positions)) {
+        throw new Error("股息資料格式不正確");
+      }
+
+      if (signal?.aborted) {
+        return;
+      }
+
+      setRecords(data.items);
+      setPositions(data.positions);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+
+      setErrorMessage(
+        error instanceof Error ? error.message : "無法取得股息資料",
+      );
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    void fetch("/api/dividends", {
-        cache: "no-store",
-        signal: controller.signal,
-      })
-      .then(async (response) => {
-        const data = (await response.json()) as DividendResponse & {
-          error?: string;
-        };
-
-        if (!response.ok) {
-          throw new Error(data.error ?? "無法取得股息資料");
-        }
-
-        if (!Array.isArray(data.items) || !Array.isArray(data.positions)) {
-          throw new Error("股息資料格式不正確");
-        }
-
-        return data;
-      })
-      .then((data) => {
-        setRecords(data.items);
-        setPositions(data.positions);
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-
-        setErrorMessage(
-          error instanceof Error ? error.message : "無法取得股息資料",
-        );
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
-      });
+    queueMicrotask(() => void loadDividendData(controller.signal));
 
     return () => controller.abort();
-  }, [reloadKey]);
+  }, [loadDividendData]);
+
+  async function handleRefresh() {
+    setIsRefreshing(true);
+    setRefreshStatus(null);
+
+    try {
+      const response = await fetch("/api/dividends", { method: "POST" });
+
+      if (!response.ok) {
+        throw new Error(await readApiError(response));
+      }
+
+      const result = (await response.json()) as DividendSyncResponse;
+
+      if (
+        typeof result.fetchedCount !== "number" ||
+        typeof result.insertedCount !== "number" ||
+        typeof result.modifiedCount !== "number" ||
+        typeof result.verifiedCount !== "number"
+      ) {
+        throw new Error("股息更新結果格式不正確");
+      }
+
+      await loadDividendData();
+      setRefreshStatus({
+        type: "success",
+        message:
+          result.positionCount === 0
+            ? "目前沒有台股庫存可查詢股息"
+            : `已查詢 ${result.fetchedCount} 筆；新增 ${result.insertedCount} 筆、修改 ${result.modifiedCount} 筆，依 ID 查回 ${result.verifiedCount} 筆`,
+      });
+    } catch (error) {
+      setRefreshStatus({
+        type: "error",
+        message: error instanceof Error ? error.message : "手動更新股息失敗",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
 
   const years = useMemo(
     () =>
@@ -206,16 +271,40 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
   return (
     <main className="flex-1 bg-slate-100 px-4 py-8 text-slate-950 sm:px-6 sm:py-12 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-8 border-b border-slate-300 pb-8">
-          <p className="mb-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold tracking-[0.16em] text-emerald-800">
-            股息配發
-          </p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            年度股息一覽
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-            集中查看已入帳與等待發放的現金股息。
-          </p>
+        <header className="mb-8 flex flex-col gap-5 border-b border-slate-300 pb-8 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="mb-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold tracking-[0.16em] text-emerald-800">
+              股息配發
+            </p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              年度股息一覽
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              頁面載入只讀取資料庫；按下按鈕才會查詢官方來源並更新股息。
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={isLoading || isRefreshing || positions.length === 0}
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-300"
+            >
+              {isRefreshing ? "查詢更新中…" : "手動更新股息"}
+            </button>
+            {refreshStatus ? (
+              <p
+                role={refreshStatus.type === "error" ? "alert" : "status"}
+                className={`max-w-md text-xs leading-5 sm:text-right ${
+                  refreshStatus.type === "success"
+                    ? "text-emerald-700"
+                    : "text-rose-700"
+                }`}
+              >
+                {refreshStatus.message}
+              </p>
+            ) : null}
+          </div>
         </header>
 
         <section
@@ -403,11 +492,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
               <p className="mt-2 text-sm text-slate-600">{errorMessage}</p>
               <button
                 type="button"
-                onClick={() => {
-                  setIsLoading(true);
-                  setErrorMessage(null);
-                  setReloadKey((value) => value + 1);
-                }}
+                onClick={() => void loadDividendData()}
                 className="mt-5 min-h-10 rounded-xl bg-slate-950 px-4 py-2 text-sm font-bold text-white transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
               >
                 重新載入
@@ -425,7 +510,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
                 {emptyStateText}
               </h2>
               <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
-                每日同步完成後，這裡會依年份顯示目前庫存的股息紀錄。
+                手動更新完成後，這裡會依年份顯示目前庫存的股息紀錄。
               </p>
             </div>
           ) : (

@@ -1,4 +1,4 @@
-import type { AnyBulkWriteOperation, WithId } from "mongodb";
+import { ObjectId, type AnyBulkWriteOperation, type WithId } from "mongodb";
 
 import {
   fetchDividendEventsForPositions,
@@ -23,6 +23,7 @@ export interface DividendSyncResult {
   modifiedCount: number;
   matchedCount: number;
   skippedCount: number;
+  verifiedCount: number;
   syncedAt: string;
 }
 
@@ -103,6 +104,7 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
       modifiedCount: 0,
       matchedCount: 0,
       skippedCount: 0,
+      verifiedCount: 0,
       syncedAt: now.toISOString(),
     } satisfies DividendSyncResult;
   }
@@ -125,6 +127,7 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
     ]),
   );
   const operations: AnyBulkWriteOperation<DividendRecordDocument>[] = [];
+  const affectedIds: ObjectId[] = [];
 
   for (const event of events) {
     const position = positionByCode.get(event.stockCode);
@@ -141,11 +144,16 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
     const existing = existingByKey.get(key);
 
     if (!existing) {
+      const insertedId = new ObjectId();
       operations.push({
         insertOne: {
-          document: toNewDividendRecord(position, event, now, today),
+          document: {
+            _id: insertedId,
+            ...toNewDividendRecord(position, event, now, today),
+          },
         },
       });
+      affectedIds.push(insertedId);
       continue;
     }
 
@@ -176,6 +184,7 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
         },
       },
     });
+    affectedIds.push(existing._id);
   }
 
   if (dryRun || operations.length === 0) {
@@ -189,6 +198,7 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
       matchedCount: operations.filter((operation) => "updateOne" in operation)
         .length,
       skippedCount: events.length - operations.length,
+      verifiedCount: 0,
       syncedAt: now.toISOString(),
     } satisfies DividendSyncResult;
   }
@@ -196,6 +206,13 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
   await assertDividendRecordCollectionReady();
   const collection = await getDividendRecordCollection();
   const result = await collection.bulkWrite(operations, { ordered: false });
+  const verifiedDocuments = await Promise.all(
+    affectedIds.map((id) => collection.findOne({ _id: id })),
+  );
+
+  if (verifiedDocuments.some((document) => !document)) {
+    throw new Error("股息資料寫入後無法依 _id 完整查回驗證");
+  }
 
   return {
     dryRun,
@@ -205,6 +222,7 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
     modifiedCount: result.modifiedCount,
     matchedCount: result.matchedCount,
     skippedCount: events.length - operations.length,
+    verifiedCount: verifiedDocuments.length,
     syncedAt: now.toISOString(),
   } satisfies DividendSyncResult;
 }

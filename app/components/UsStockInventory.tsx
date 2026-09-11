@@ -58,6 +58,13 @@ const shareFormatter = new Intl.NumberFormat("zh-TW", {
   maximumFractionDigits: 6,
 });
 
+const usdPriceFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const usStockAssetTypeLabels: Record<UsStockAssetType, string> = {
   stock: "股票",
   stockEtf: "股票 ETF",
@@ -146,7 +153,7 @@ export function UsStockInventory({
               美股庫存管理
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              美股與 ETF 的投入成本、收盤價、市值與損益統一換算為新台幣顯示。
+              美股與 ETF 的最近收盤價以美元顯示；投入成本、市值與損益換算為新台幣。
             </p>
             {exchangeRate ? (
               <p className="mt-2 text-xs text-slate-500">
@@ -181,7 +188,7 @@ export function UsStockInventory({
                 <h2 className="text-lg font-bold">目前庫存</h2>
                 <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
                   <p>頁面載入只讀取資料庫；按下更新按鈕才會抓取並寫入收盤價。</p>
-                  <p>持股市值 ＝ 股數 × 最近收盤價</p>
+                  <p>持股市值（TWD）＝ 股數 × 最近收盤價（USD）× 美元匯率</p>
                   <p>即時損益 ＝ 持股市值 − 投資金額</p>
                   <p>損益率 ＝ 即時損益 ÷ 投資金額</p>
                 </div>
@@ -251,15 +258,14 @@ export function UsStockInventory({
                         </div>
                         <div>
                           <dt className="text-xs font-medium text-slate-500">
-                            最近收盤價
+                            最近收盤價（USD）
                           </dt>
                           <dd className="mt-1 font-semibold tabular-nums text-slate-900">
                             {item.valuation ? (
                               <>
                                 <span>
-                                  {currencyFormatter.format(
-                                    item.valuation.close *
-                                      (exchangeRate?.rate ?? 0),
+                                  {usdPriceFormatter.format(
+                                    item.valuation.close,
                                   )}
                                 </span>
                                 <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
@@ -334,7 +340,9 @@ export function UsStockInventory({
                         <th className="px-5 py-4 font-semibold">種類</th>
                         <th className="px-5 py-4 text-right font-semibold">股數</th>
                         <th className="px-5 py-4 text-right font-semibold">投資金額</th>
-                        <th className="px-4 py-4 text-right font-semibold">最近收盤價</th>
+                        <th className="px-4 py-4 text-right font-semibold">
+                          最近收盤價（USD）
+                        </th>
                         <th className="px-4 py-4 text-right font-semibold">持股市值</th>
                         <th className="px-4 py-4 text-right font-semibold">即時損益</th>
                         <th className="w-28 px-4 py-4 text-right font-semibold">損益率</th>
@@ -362,9 +370,8 @@ export function UsStockInventory({
                             {item.valuation ? (
                               <div>
                                 <p>
-                                  {currencyFormatter.format(
-                                    item.valuation.close *
-                                      (exchangeRate?.rate ?? 0),
+                                  {usdPriceFormatter.format(
+                                    item.valuation.close,
                                   )}
                                 </p>
                                 <p className="mt-1 text-[11px] font-normal text-slate-500">
