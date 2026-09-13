@@ -16,6 +16,7 @@ export const STOCK_POSITION_COLLECTION = "stockPositions";
 export const STOCK_ASSET_TYPES = ["stock", "stockEtf", "bondEtf"] as const;
 
 export interface StockPositionDocument {
+  userId: string;
   stockCode: string;
   stockName: string;
   assetType: StockAssetType;
@@ -86,6 +87,7 @@ export type StockPositionMutationResult =
 export const stockPositionJsonSchema = {
   bsonType: "object",
   required: [
+    "userId",
     "stockCode",
     "stockName",
     "assetType",
@@ -97,6 +99,7 @@ export const stockPositionJsonSchema = {
   additionalProperties: false,
   properties: {
     _id: { bsonType: "objectId" },
+    userId: { bsonType: "string", minLength: 1, maxLength: 100 },
     stockCode: { bsonType: "string", minLength: 1, maxLength: 20 },
     stockName: { bsonType: "string", minLength: 1, maxLength: 100 },
     assetType: { enum: STOCK_ASSET_TYPES },
@@ -270,15 +273,22 @@ export async function getStockPositionCollection(): Promise<
   return client.db().collection<StockPositionDocument>(STOCK_POSITION_COLLECTION);
 }
 
-export async function listStockPositions() {
+export async function listStockPositions(userId: string) {
   const collection = await getStockPositionCollection();
-  return collection.find({}).sort({ createdAt: -1 }).limit(100).toArray();
+  return collection
+    .find({ userId })
+    .sort({ createdAt: -1 })
+    .limit(100)
+    .toArray();
 }
 
 export async function insertStockPosition(document: StockPositionDocument) {
   const collection = await getStockPositionCollection();
   const result = await collection.insertOne(document);
-  const inserted = await collection.findOne({ _id: result.insertedId });
+  const inserted = await collection.findOne({
+    _id: result.insertedId,
+    userId: document.userId,
+  });
 
   if (!inserted) {
     throw new Error("新增後無法查回股票庫存");
@@ -287,12 +297,16 @@ export async function insertStockPosition(document: StockPositionDocument) {
   return inserted;
 }
 
-export async function findStockPositionByCode(stockCode: string) {
+export async function findStockPositionByCode(
+  userId: string,
+  stockCode: string,
+) {
   const collection = await getStockPositionCollection();
-  return collection.findOne({ stockCode });
+  return collection.findOne({ userId, stockCode });
 }
 
 export async function applyStockTrade(
+  userId: string,
   input: StockTradeInput,
   stock: Pick<StockPositionDocument, "stockCode" | "stockName" | "assetType">,
   calculation: StockTradeCalculation,
@@ -303,7 +317,7 @@ export async function applyStockTrade(
   if (input.side === "buy") {
     const now = new Date();
     const result = await collection.updateOne(
-      { stockCode: stock.stockCode },
+      { userId, stockCode: stock.stockCode },
       {
         $inc: {
           shares: input.shares,
@@ -311,6 +325,7 @@ export async function applyStockTrade(
         },
         $set: { updatedAt: now },
         $setOnInsert: {
+          userId,
           stockName: stock.stockName,
           assetType: stock.assetType,
           createdAt: now,
@@ -320,7 +335,7 @@ export async function applyStockTrade(
     );
 
     const position = await collection.findOne(
-      { stockCode: stock.stockCode },
+      { userId, stockCode: stock.stockCode },
       { session },
     );
 
@@ -329,7 +344,7 @@ export async function applyStockTrade(
     }
 
     const verified = await collection.findOne(
-      { _id: position._id },
+      { _id: position._id, userId },
       { session },
     );
 
@@ -351,7 +366,7 @@ export async function applyStockTrade(
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const current = await collection.findOne(
-      { stockCode: input.stockCode },
+      { userId, stockCode: input.stockCode },
       { session },
     );
 
@@ -374,6 +389,7 @@ export async function applyStockTrade(
       const result = await collection.deleteOne(
         {
           _id: current._id,
+          userId,
           shares: current.shares,
           updatedAt: current.updatedAt,
         },
@@ -385,7 +401,7 @@ export async function applyStockTrade(
       }
 
       const verified = await collection.findOne(
-        { _id: current._id },
+        { _id: current._id, userId },
         { session },
       );
 
@@ -408,6 +424,7 @@ export async function applyStockTrade(
     const result = await collection.updateOne(
       {
         _id: current._id,
+        userId,
         shares: current.shares,
         updatedAt: current.updatedAt,
       },
@@ -426,7 +443,7 @@ export async function applyStockTrade(
     }
 
     const verified = await collection.findOne(
-      { _id: current._id },
+      { _id: current._id, userId },
       { session },
     );
 
@@ -450,18 +467,19 @@ export async function applyStockTrade(
 }
 
 export async function updateStockPosition(
+  userId: string,
   id: ObjectId,
   input: UpdateStockPositionInput,
 ): Promise<StockPositionMutationResult> {
   const collection = await getStockPositionCollection();
-  const existing = await collection.findOne({ _id: id });
+  const existing = await collection.findOne({ _id: id, userId });
 
   if (!existing) {
     return { status: "notFound" };
   }
 
   const result = await collection.updateOne(
-    { _id: id, updatedAt: existing.updatedAt },
+    { _id: id, userId, updatedAt: existing.updatedAt },
     {
       $set: {
         shares: input.shares,
@@ -475,7 +493,7 @@ export async function updateStockPosition(
     return { status: "conflict" };
   }
 
-  const updated = await collection.findOne({ _id: id });
+  const updated = await collection.findOne({ _id: id, userId });
 
   if (!updated) {
     throw new Error("修改後無法查回股票庫存");
@@ -489,10 +507,11 @@ export async function updateStockPosition(
 }
 
 export async function deleteStockPosition(
+  userId: string,
   id: ObjectId,
 ): Promise<StockPositionMutationResult> {
   const collection = await getStockPositionCollection();
-  const existing = await collection.findOne({ _id: id });
+  const existing = await collection.findOne({ _id: id, userId });
 
   if (!existing) {
     return { status: "notFound" };
@@ -500,6 +519,7 @@ export async function deleteStockPosition(
 
   const result = await collection.deleteOne({
     _id: id,
+    userId,
     updatedAt: existing.updatedAt,
   });
 

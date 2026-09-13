@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  getAuthenticatedUserId,
+  unauthorizedResponse,
+} from "@/lib/auth-session";
+import {
   findTaiwanStock,
   normalizeStockCode,
   StockMarketServiceError,
@@ -9,9 +13,11 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  const rawCode = request.nextUrl.searchParams.get("code");
-
   try {
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
+    const rawCode = request.nextUrl.searchParams.get("code");
     const stockCode = normalizeStockCode(rawCode);
     const stock = await findTaiwanStock(stockCode);
 

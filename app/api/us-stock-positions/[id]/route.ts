@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  getAuthenticatedUserId,
+  unauthorizedResponse,
+} from "@/lib/auth-session";
 import { serializeUsStockPositionsWithValuations } from "@/lib/us-stock-position-view";
 import {
   deleteUsStockPosition,
@@ -31,6 +35,9 @@ export async function PATCH(
   context: UsStockPositionRouteContext,
 ) {
   try {
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
     let body: unknown;
 
     try {
@@ -45,7 +52,7 @@ export async function PATCH(
     const { id } = await context.params;
     const objectId = parseUsStockPositionId(id);
     const input = parseUpdateUsStockPositionInput(body);
-    const result = await updateUsStockPosition(objectId, input);
+    const result = await updateUsStockPosition(userId, objectId, input);
 
     if (result.status !== "success") {
       return mutationError(result.status);
@@ -71,13 +78,16 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: UsStockPositionRouteContext,
 ) {
   try {
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
     const { id } = await context.params;
     const objectId = parseUsStockPositionId(id);
-    const result = await deleteUsStockPosition(objectId);
+    const result = await deleteUsStockPosition(userId, objectId);
 
     if (result.status !== "success") {
       return mutationError(result.status);

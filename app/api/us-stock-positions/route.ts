@@ -1,6 +1,10 @@
 import { MongoServerError } from "mongodb";
 import { NextResponse } from "next/server";
 
+import {
+  getAuthenticatedUserId,
+  unauthorizedResponse,
+} from "@/lib/auth-session";
 import { findUsStockProfile, UsStockServiceError } from "@/lib/us-stock";
 import { serializeUsStockPositionsWithValuations } from "@/lib/us-stock-position-view";
 import {
@@ -12,9 +16,12 @@ import {
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const documents = await listUsStockPositions();
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
+    const documents = await listUsStockPositions(userId);
     const response = await serializeUsStockPositionsWithValuations(documents);
 
     return NextResponse.json(response);
@@ -26,6 +33,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
     let body: unknown;
 
     try {
@@ -49,6 +59,7 @@ export async function POST(request: Request) {
 
     const now = new Date();
     const document: UsStockPositionDocument = {
+      userId,
       ...input,
       stockName: profile.stockName,
       assetType: profile.assetType,

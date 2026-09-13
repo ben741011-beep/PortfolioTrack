@@ -6,7 +6,7 @@ if (!uri) {
   throw new Error("缺少環境變數 MONGODB_URI");
 }
 
-const mongoClient = new MongoClient(uri, {
+export const mongoClient = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
     strict: true,

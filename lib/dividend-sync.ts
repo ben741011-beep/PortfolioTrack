@@ -62,6 +62,7 @@ function makeRecordKey(
 }
 
 function toNewDividendRecord(
+  userId: string,
   position: WithId<StockPositionDocument>,
   event: ExternalDividendEvent,
   now: Date,
@@ -70,6 +71,7 @@ function toNewDividendRecord(
   const shouldLock = event.exDividendDate <= today;
 
   return {
+    userId,
     stockCode: position.stockCode,
     stockName: position.stockName,
     assetType: position.assetType,
@@ -89,9 +91,12 @@ function toNewDividendRecord(
   };
 }
 
-export async function syncDividendRecords(options?: { dryRun?: boolean }) {
+export async function syncDividendRecords(
+  userId: string,
+  options?: { dryRun?: boolean },
+) {
   const dryRun = options?.dryRun ?? false;
-  const positions = await listStockPositions();
+  const positions = await listStockPositions(userId);
   const now = new Date();
   const today = getTaipeiTodayUtc(now);
 
@@ -114,6 +119,7 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
     positions.map((position) => [position.stockCode, position]),
   );
   const existingRecords = await findDividendRecordsByKeys(
+    userId,
     events.map((event) => ({
       source: event.source,
       stockCode: event.stockCode,
@@ -149,7 +155,7 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
         insertOne: {
           document: {
             _id: insertedId,
-            ...toNewDividendRecord(position, event, now, today),
+            ...toNewDividendRecord(userId, position, event, now, today),
           },
         },
       });
@@ -207,7 +213,7 @@ export async function syncDividendRecords(options?: { dryRun?: boolean }) {
   const collection = await getDividendRecordCollection();
   const result = await collection.bulkWrite(operations, { ordered: false });
   const verifiedDocuments = await Promise.all(
-    affectedIds.map((id) => collection.findOne({ _id: id })),
+    affectedIds.map((id) => collection.findOne({ _id: id, userId })),
   );
 
   if (verifiedDocuments.some((document) => !document)) {

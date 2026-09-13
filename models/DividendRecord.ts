@@ -20,6 +20,7 @@ export type DividendSource = (typeof DIVIDEND_SOURCES)[number];
 export type DividendStatus = "pending" | "paid";
 
 export interface DividendRecordDocument {
+  userId: string;
   stockCode: string;
   stockName: string;
   assetType: StockPositionDocument["assetType"];
@@ -46,6 +47,7 @@ export type DividendRecordKey = Pick<
 export const dividendRecordJsonSchema = {
   bsonType: "object",
   required: [
+    "userId",
     "stockCode",
     "stockName",
     "assetType",
@@ -66,6 +68,7 @@ export const dividendRecordJsonSchema = {
   additionalProperties: false,
   properties: {
     _id: { bsonType: "objectId" },
+    userId: { bsonType: "string", minLength: 1, maxLength: 100 },
     stockCode: { bsonType: "string", minLength: 1, maxLength: 20 },
     stockName: { bsonType: "string", minLength: 1, maxLength: 100 },
     assetType: { enum: STOCK_ASSET_TYPES },
@@ -117,7 +120,8 @@ export async function assertDividendRecordCollectionReady() {
   const indexes = await collection.indexes();
   const hasUniqueEventIndex = indexes.some(
     (index) =>
-      index.name === "source_1_stockCode_1_exDividendDate_1" && index.unique,
+      index.name ===
+        "userId_1_source_1_stockCode_1_exDividendDate_1" && index.unique,
   );
 
   if (!hasUniqueEventIndex) {
@@ -125,7 +129,10 @@ export async function assertDividendRecordCollectionReady() {
   }
 }
 
-export async function findDividendRecordsByKeys(keys: DividendRecordKey[]) {
+export async function findDividendRecordsByKeys(
+  userId: string,
+  keys: DividendRecordKey[],
+) {
   if (keys.length === 0) {
     return [];
   }
@@ -133,6 +140,7 @@ export async function findDividendRecordsByKeys(keys: DividendRecordKey[]) {
   const collection = await getDividendRecordCollection();
   return collection
     .find({
+      userId,
       $or: keys.map((key) => ({
         source: key.source,
         stockCode: key.stockCode,
@@ -142,7 +150,10 @@ export async function findDividendRecordsByKeys(keys: DividendRecordKey[]) {
     .toArray();
 }
 
-export async function listDividendRecords(stockCodes: string[]) {
+export async function listDividendRecords(
+  userId: string,
+  stockCodes: string[],
+) {
   if (stockCodes.length === 0) {
     return [];
   }
@@ -150,6 +161,7 @@ export async function listDividendRecords(stockCodes: string[]) {
   const collection = await getDividendRecordCollection();
   return collection
     .find({
+      userId,
       stockCode: { $in: stockCodes },
       dividendYear: { $gte: DIVIDEND_START_YEAR },
     })

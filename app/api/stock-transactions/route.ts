@@ -2,6 +2,10 @@ import { MongoServerError } from "mongodb";
 import { NextResponse } from "next/server";
 
 import {
+  getAuthenticatedUserId,
+  unauthorizedResponse,
+} from "@/lib/auth-session";
+import {
   findTaiwanStock,
   StockMarketServiceError,
 } from "@/lib/taiwan-stock";
@@ -19,9 +23,12 @@ import {
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const transactions = await listStockTransactions();
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
+    const transactions = await listStockTransactions(userId);
     return NextResponse.json({
       items: transactions.map(serializeStockTransaction),
     });
@@ -33,6 +40,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
     let body: unknown;
 
     try {
@@ -45,7 +55,7 @@ export async function POST(request: Request) {
     }
 
     const input = parseStockTradeInput(body);
-    const existing = await findStockPositionByCode(input.stockCode);
+    const existing = await findStockPositionByCode(userId, input.stockCode);
 
     if (input.side === "sell" && !existing) {
       return NextResponse.json(
@@ -67,6 +77,7 @@ export async function POST(request: Request) {
 
     const calculation = calculateStockTrade(input, marketStock.assetType);
     const result = await applyAndRecordStockTrade(
+      userId,
       input,
       {
         stockCode: marketStock.stockCode,

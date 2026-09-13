@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  getAuthenticatedUserId,
+  unauthorizedResponse,
+} from "@/lib/auth-session";
 import { getDailyUsdTwdExchangeRate } from "@/lib/exchange-rate-service";
 import { serializeStockPositionsWithValuations } from "@/lib/stock-position-view";
 import { serializeUsStockPositionsWithValuations } from "@/lib/us-stock-position-view";
@@ -9,11 +13,14 @@ import { listUsStockPositions } from "@/models/UsStockPosition";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
     const [taiwanDocuments, usDocuments, exchangeRate] = await Promise.all([
-      listStockPositions(),
-      listUsStockPositions(),
+      listStockPositions(userId),
+      listUsStockPositions(userId),
       getDailyUsdTwdExchangeRate(),
     ]);
     const [taiwanItems, usResponse] = await Promise.all([

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 
+import {
+  getAuthenticatedUserId,
+  unauthorizedResponse,
+} from "@/lib/auth-session";
 import { DividendSourceError } from "@/lib/dividend-sources";
 import { syncDividendRecords } from "@/lib/dividend-sync";
 import {
@@ -11,10 +15,14 @@ import { listStockPositions } from "@/models/StockPosition";
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const positions = await listStockPositions();
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
+    const positions = await listStockPositions(userId);
     const records = await listDividendRecords(
+      userId,
       positions.map((position) => position.stockCode),
     );
 
@@ -34,8 +42,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const userId = await getAuthenticatedUserId(request.headers);
+    if (!userId) return unauthorizedResponse();
+
     const dryRun = new URL(request.url).searchParams.get("dryRun") === "1";
-    const result = await syncDividendRecords({ dryRun });
+    const result = await syncDividendRecords(userId, { dryRun });
 
     return NextResponse.json(result);
   } catch (error) {
