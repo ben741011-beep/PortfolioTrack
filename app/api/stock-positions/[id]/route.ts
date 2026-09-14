@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import {
-  getAuthenticatedUserId,
+  familyMemberRequiredResponse,
+  getAuthenticatedPortfolioContext,
   unauthorizedResponse,
 } from "@/lib/auth-session";
 import { serializeStockPositionsWithValuations } from "@/lib/stock-position-view";
@@ -35,8 +36,9 @@ export async function PATCH(
   context: StockPositionRouteContext,
 ) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const portfolioContext = await getAuthenticatedPortfolioContext(request.headers);
+    if (!portfolioContext) return unauthorizedResponse();
+    if (!portfolioContext.familyMemberId) return familyMemberRequiredResponse();
 
     let body: unknown;
 
@@ -52,7 +54,7 @@ export async function PATCH(
     const { id } = await context.params;
     const objectId = parseStockPositionId(id);
     const input = parseUpdateStockPositionInput(body);
-    const result = await updateStockPosition(userId, objectId, input);
+    const result = await updateStockPosition(portfolioContext.userId, portfolioContext.familyMemberId, objectId, input);
 
     if (result.status !== "success") {
       return mutationError(result.status);
@@ -82,12 +84,13 @@ export async function DELETE(
   context: StockPositionRouteContext,
 ) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const portfolioContext = await getAuthenticatedPortfolioContext(request.headers);
+    if (!portfolioContext) return unauthorizedResponse();
+    if (!portfolioContext.familyMemberId) return familyMemberRequiredResponse();
 
     const { id } = await context.params;
     const objectId = parseStockPositionId(id);
-    const result = await deleteStockPosition(userId, objectId);
+    const result = await deleteStockPosition(portfolioContext.userId, portfolioContext.familyMemberId, objectId);
 
     if (result.status !== "success") {
       return mutationError(result.status);

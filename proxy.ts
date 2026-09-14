@@ -5,6 +5,7 @@ const privatePaths = [
   "/inventory",
   "/transactions",
   "/dividends",
+  "/family",
   "/us-inventory",
 ];
 
@@ -27,6 +28,7 @@ export const config = {
     "/inventory/:path*",
     "/transactions/:path*",
     "/dividends/:path*",
+    "/family/:path*",
     "/us-inventory/:path*",
   ],
 };

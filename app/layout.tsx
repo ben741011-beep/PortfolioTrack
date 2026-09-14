@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PortfolioTrack｜股票庫存管理",
-  description: "管理股票股數與投資金額",
+  title: "家庭資產簿｜親子投資資產管理",
+  description: "用一個帳號分開管理自己與孩子的台美股資產",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

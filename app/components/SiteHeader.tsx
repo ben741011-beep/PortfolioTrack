@@ -4,12 +4,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { authClient } from "@/lib/auth-client";
+import { FamilyMemberSwitcher } from "@/app/components/FamilyMemberSwitcher";
 
 const navigationItems = [
   { href: "/", label: "市場統計", compactLabel: "統計" },
   { href: "/inventory", label: "庫存管理", compactLabel: "庫存" },
   { href: "/transactions", label: "新增與買賣", compactLabel: "買賣" },
   { href: "/dividends", label: "股息紀錄", compactLabel: "股息" },
+  { href: "/family", label: "家庭成員", compactLabel: "家庭" },
 ] as const;
 
 export function SiteHeader() {
@@ -25,25 +27,46 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-800 bg-slate-950/95 text-white shadow-sm backdrop-blur">
-      <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="flex min-w-0 items-center gap-3">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="flex min-h-16 items-center justify-between gap-3">
+          <Link href="/" className="flex min-w-0 items-center gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-emerald-400/30 bg-emerald-400/10 text-sm font-bold tracking-wide text-emerald-300">
             PT
           </span>
           <span className="hidden min-w-0 min-[430px]:block">
             <span className="block truncate text-base font-bold tracking-wide">
-              PortfolioTrack
+              家庭資產簿
             </span>
             <span className="hidden text-xs text-slate-400 sm:block">
-              股票統計與庫存管理
+              親子投資資產管理
             </span>
           </span>
-        </Link>
+          </Link>
 
-        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <div className="flex shrink-0 items-center gap-2">
+            {!isPending && session ? (
+              <>
+                <FamilyMemberSwitcher />
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-lg border border-white/10 px-2 py-2 text-xs font-semibold text-slate-300 transition hover:border-rose-300/30 hover:bg-rose-400/10 hover:text-rose-200 sm:px-3 sm:text-sm"
+                >
+                  登出
+                </button>
+              </>
+            ) : !isPending ? (
+              <Link href="/login" className="rounded-lg bg-emerald-400 px-3 py-2 text-xs font-bold text-emerald-950 transition hover:bg-emerald-300 sm:text-sm">
+                登入
+              </Link>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
           <nav
             aria-label="主要導覽"
-            className="flex items-center gap-0.5 text-xs sm:gap-1 sm:text-sm"
+            className="flex min-w-max items-center gap-1 pb-2 text-xs sm:text-sm"
           >
             {navigationItems
               .filter((item) => item.href === "/" || Boolean(session))
@@ -67,23 +90,6 @@ export function SiteHeader() {
                 );
               })}
           </nav>
-
-          {!isPending && session ? (
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-lg border border-white/10 px-2 py-2 text-xs font-semibold text-slate-300 transition hover:border-rose-300/30 hover:bg-rose-400/10 hover:text-rose-200 sm:px-3 sm:text-sm"
-            >
-              登出
-            </button>
-          ) : !isPending ? (
-            <Link
-              href="/login"
-              className="rounded-lg bg-emerald-400 px-2 py-2 text-xs font-bold text-emerald-950 transition hover:bg-emerald-300 sm:px-3 sm:text-sm"
-            >
-              登入
-            </Link>
-          ) : null}
         </div>
       </div>
     </header>

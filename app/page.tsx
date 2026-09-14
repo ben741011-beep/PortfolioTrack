@@ -7,7 +7,7 @@ import {
 } from "@/lib/monthly-statistics";
 
 export const metadata: Metadata = {
-  title: "台股 vs 美股 29年實測｜PortfolioTrack",
+  title: "台股 vs 美股 29年實測｜家庭資產簿",
   description: "比較台股與美股各月份的 29 年平均報酬與勝率",
 };
 

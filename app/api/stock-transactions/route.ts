@@ -2,7 +2,8 @@ import { MongoServerError } from "mongodb";
 import { NextResponse } from "next/server";
 
 import {
-  getAuthenticatedUserId,
+  familyMemberRequiredResponse,
+  getAuthenticatedPortfolioContext,
   unauthorizedResponse,
 } from "@/lib/auth-session";
 import {
@@ -25,10 +26,11 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const context = await getAuthenticatedPortfolioContext(request.headers);
+    if (!context) return unauthorizedResponse();
+    if (!context.familyMemberId) return familyMemberRequiredResponse();
 
-    const transactions = await listStockTransactions(userId);
+    const transactions = await listStockTransactions(context.userId, context.familyMemberId);
     return NextResponse.json({
       items: transactions.map(serializeStockTransaction),
     });
@@ -40,8 +42,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const context = await getAuthenticatedPortfolioContext(request.headers);
+    if (!context) return unauthorizedResponse();
+    if (!context.familyMemberId) return familyMemberRequiredResponse();
 
     let body: unknown;
 
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
     }
 
     const input = parseStockTradeInput(body);
-    const existing = await findStockPositionByCode(userId, input.stockCode);
+    const existing = await findStockPositionByCode(context.userId, context.familyMemberId, input.stockCode);
 
     if (input.side === "sell" && !existing) {
       return NextResponse.json(
@@ -77,7 +80,8 @@ export async function POST(request: Request) {
 
     const calculation = calculateStockTrade(input, marketStock.assetType);
     const result = await applyAndRecordStockTrade(
-      userId,
+      context.userId,
+      context.familyMemberId,
       input,
       {
         stockCode: marketStock.stockCode,

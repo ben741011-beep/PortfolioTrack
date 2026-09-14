@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import {
-  getAuthenticatedUserId,
+  familyMemberRequiredResponse,
+  getAuthenticatedPortfolioContext,
   unauthorizedResponse,
 } from "@/lib/auth-session";
 import { serializeUsStockPositionsWithValuations } from "@/lib/us-stock-position-view";
@@ -35,8 +36,9 @@ export async function PATCH(
   context: UsStockPositionRouteContext,
 ) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const portfolioContext = await getAuthenticatedPortfolioContext(request.headers);
+    if (!portfolioContext) return unauthorizedResponse();
+    if (!portfolioContext.familyMemberId) return familyMemberRequiredResponse();
 
     let body: unknown;
 
@@ -52,7 +54,7 @@ export async function PATCH(
     const { id } = await context.params;
     const objectId = parseUsStockPositionId(id);
     const input = parseUpdateUsStockPositionInput(body);
-    const result = await updateUsStockPosition(userId, objectId, input);
+    const result = await updateUsStockPosition(portfolioContext.userId, portfolioContext.familyMemberId, objectId, input);
 
     if (result.status !== "success") {
       return mutationError(result.status);
@@ -82,12 +84,13 @@ export async function DELETE(
   context: UsStockPositionRouteContext,
 ) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const portfolioContext = await getAuthenticatedPortfolioContext(request.headers);
+    if (!portfolioContext) return unauthorizedResponse();
+    if (!portfolioContext.familyMemberId) return familyMemberRequiredResponse();
 
     const { id } = await context.params;
     const objectId = parseUsStockPositionId(id);
-    const result = await deleteUsStockPosition(userId, objectId);
+    const result = await deleteUsStockPosition(portfolioContext.userId, portfolioContext.familyMemberId, objectId);
 
     if (result.status !== "success") {
       return mutationError(result.status);

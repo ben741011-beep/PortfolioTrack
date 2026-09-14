@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import {
-  getAuthenticatedUserId,
+  familyMemberRequiredResponse,
+  getAuthenticatedPortfolioContext,
   unauthorizedResponse,
 } from "@/lib/auth-session";
 import { refreshClosingQuotes } from "@/lib/stock-valuation";
@@ -33,8 +34,9 @@ function parseMarket(value: unknown): InventoryMarket {
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const context = await getAuthenticatedPortfolioContext(request.headers);
+    if (!context) return unauthorizedResponse();
+    if (!context.familyMemberId) return familyMemberRequiredResponse();
 
     let body: unknown;
 
@@ -50,8 +52,8 @@ export async function POST(request: Request) {
     const market = parseMarket(body);
     const documents =
       market === "tw"
-        ? await listStockPositions(userId)
-        : await listUsStockPositions(userId);
+        ? await listStockPositions(context.userId, context.familyMemberId)
+        : await listUsStockPositions(context.userId, context.familyMemberId);
     const stockCodes = documents.map((document) => document.stockCode);
     const quotes =
       market === "tw"

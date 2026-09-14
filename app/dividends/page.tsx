@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { DividendOverview } from "@/app/components/DividendOverview";
 
 export const metadata: Metadata = {
-  title: "股息紀錄｜PortfolioTrack",
+  title: "股息紀錄｜家庭資產簿",
   description: "依年度與發放狀態檢視現金股息",
 };
 

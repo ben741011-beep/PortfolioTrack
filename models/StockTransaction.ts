@@ -1,4 +1,4 @@
-import { type Collection, type WithId } from "mongodb";
+import { ObjectId, type Collection, type WithId } from "mongodb";
 
 import clientPromise from "@/lib/mongodb";
 import {
@@ -14,6 +14,7 @@ export const STOCK_TRANSACTION_COLLECTION = "stockTransactions";
 
 export interface StockTransactionDocument {
   userId: string;
+  familyMemberId: ObjectId;
   stockCode: string;
   stockName: string;
   assetType: StockPositionDocument["assetType"];
@@ -44,6 +45,7 @@ export const stockTransactionJsonSchema = {
   bsonType: "object",
   required: [
     "userId",
+    "familyMemberId",
     "stockCode",
     "stockName",
     "assetType",
@@ -65,6 +67,7 @@ export const stockTransactionJsonSchema = {
   properties: {
     _id: { bsonType: "objectId" },
     userId: { bsonType: "string", minLength: 1, maxLength: 100 },
+    familyMemberId: { bsonType: "objectId" },
     stockCode: { bsonType: "string", minLength: 1, maxLength: 20 },
     stockName: { bsonType: "string", minLength: 1, maxLength: 100 },
     assetType: { enum: STOCK_ASSET_TYPES },
@@ -119,10 +122,10 @@ export async function getStockTransactionCollection(): Promise<
     .collection<StockTransactionDocument>(STOCK_TRANSACTION_COLLECTION);
 }
 
-export async function listStockTransactions(userId: string) {
+export async function listStockTransactions(userId: string, familyMemberId: ObjectId) {
   const collection = await getStockTransactionCollection();
   return collection
-    .find({ userId })
+    .find({ userId, familyMemberId })
     .sort({ occurredAt: -1 })
     .limit(200)
     .toArray();
@@ -154,6 +157,7 @@ export function serializeStockTransaction(
 
 export async function applyAndRecordStockTrade(
   userId: string,
+  familyMemberId: ObjectId,
   input: StockTradeInput,
   stock: Pick<StockPositionDocument, "stockCode" | "stockName" | "assetType">,
   calculation: StockTradeCalculation,
@@ -166,6 +170,7 @@ export async function applyAndRecordStockTrade(
     await session.withTransaction(async () => {
       const tradeResult = await applyStockTrade(
         userId,
+        familyMemberId,
         input,
         stock,
         calculation,
@@ -180,6 +185,7 @@ export async function applyAndRecordStockTrade(
       const now = new Date();
       const document: StockTransactionDocument = {
         userId,
+        familyMemberId,
         stockCode: stock.stockCode,
         stockName: stock.stockName,
         assetType: stock.assetType,
@@ -197,7 +203,7 @@ export async function applyAndRecordStockTrade(
       const collection = await getStockTransactionCollection();
       const insertResult = await collection.insertOne(document, { session });
       const transaction = await collection.findOne(
-        { _id: insertResult.insertedId, userId },
+        { _id: insertResult.insertedId, userId, familyMemberId },
         { session },
       );
 

@@ -17,6 +17,7 @@ export const STOCK_ASSET_TYPES = ["stock", "stockEtf", "bondEtf"] as const;
 
 export interface StockPositionDocument {
   userId: string;
+  familyMemberId: ObjectId;
   stockCode: string;
   stockName: string;
   assetType: StockAssetType;
@@ -88,6 +89,7 @@ export const stockPositionJsonSchema = {
   bsonType: "object",
   required: [
     "userId",
+    "familyMemberId",
     "stockCode",
     "stockName",
     "assetType",
@@ -100,6 +102,7 @@ export const stockPositionJsonSchema = {
   properties: {
     _id: { bsonType: "objectId" },
     userId: { bsonType: "string", minLength: 1, maxLength: 100 },
+    familyMemberId: { bsonType: "objectId" },
     stockCode: { bsonType: "string", minLength: 1, maxLength: 20 },
     stockName: { bsonType: "string", minLength: 1, maxLength: 100 },
     assetType: { enum: STOCK_ASSET_TYPES },
@@ -273,10 +276,10 @@ export async function getStockPositionCollection(): Promise<
   return client.db().collection<StockPositionDocument>(STOCK_POSITION_COLLECTION);
 }
 
-export async function listStockPositions(userId: string) {
+export async function listStockPositions(userId: string, familyMemberId: ObjectId) {
   const collection = await getStockPositionCollection();
   return collection
-    .find({ userId })
+    .find({ userId, familyMemberId })
     .sort({ createdAt: -1 })
     .limit(100)
     .toArray();
@@ -288,6 +291,7 @@ export async function insertStockPosition(document: StockPositionDocument) {
   const inserted = await collection.findOne({
     _id: result.insertedId,
     userId: document.userId,
+    familyMemberId: document.familyMemberId,
   });
 
   if (!inserted) {
@@ -299,14 +303,16 @@ export async function insertStockPosition(document: StockPositionDocument) {
 
 export async function findStockPositionByCode(
   userId: string,
+  familyMemberId: ObjectId,
   stockCode: string,
 ) {
   const collection = await getStockPositionCollection();
-  return collection.findOne({ userId, stockCode });
+  return collection.findOne({ userId, familyMemberId, stockCode });
 }
 
 export async function applyStockTrade(
   userId: string,
+  familyMemberId: ObjectId,
   input: StockTradeInput,
   stock: Pick<StockPositionDocument, "stockCode" | "stockName" | "assetType">,
   calculation: StockTradeCalculation,
@@ -317,7 +323,7 @@ export async function applyStockTrade(
   if (input.side === "buy") {
     const now = new Date();
     const result = await collection.updateOne(
-      { userId, stockCode: stock.stockCode },
+      { userId, familyMemberId, stockCode: stock.stockCode },
       {
         $inc: {
           shares: input.shares,
@@ -326,6 +332,7 @@ export async function applyStockTrade(
         $set: { updatedAt: now },
         $setOnInsert: {
           userId,
+          familyMemberId,
           stockName: stock.stockName,
           assetType: stock.assetType,
           createdAt: now,
@@ -335,7 +342,7 @@ export async function applyStockTrade(
     );
 
     const position = await collection.findOne(
-      { userId, stockCode: stock.stockCode },
+      { userId, familyMemberId, stockCode: stock.stockCode },
       { session },
     );
 
@@ -344,7 +351,7 @@ export async function applyStockTrade(
     }
 
     const verified = await collection.findOne(
-      { _id: position._id, userId },
+      { _id: position._id, userId, familyMemberId },
       { session },
     );
 
@@ -366,7 +373,7 @@ export async function applyStockTrade(
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const current = await collection.findOne(
-      { userId, stockCode: input.stockCode },
+      { userId, familyMemberId, stockCode: input.stockCode },
       { session },
     );
 
@@ -390,6 +397,7 @@ export async function applyStockTrade(
         {
           _id: current._id,
           userId,
+          familyMemberId,
           shares: current.shares,
           updatedAt: current.updatedAt,
         },
@@ -401,7 +409,7 @@ export async function applyStockTrade(
       }
 
       const verified = await collection.findOne(
-        { _id: current._id, userId },
+        { _id: current._id, userId, familyMemberId },
         { session },
       );
 
@@ -425,6 +433,7 @@ export async function applyStockTrade(
       {
         _id: current._id,
         userId,
+        familyMemberId,
         shares: current.shares,
         updatedAt: current.updatedAt,
       },
@@ -443,7 +452,7 @@ export async function applyStockTrade(
     }
 
     const verified = await collection.findOne(
-      { _id: current._id, userId },
+      { _id: current._id, userId, familyMemberId },
       { session },
     );
 
@@ -468,18 +477,19 @@ export async function applyStockTrade(
 
 export async function updateStockPosition(
   userId: string,
+  familyMemberId: ObjectId,
   id: ObjectId,
   input: UpdateStockPositionInput,
 ): Promise<StockPositionMutationResult> {
   const collection = await getStockPositionCollection();
-  const existing = await collection.findOne({ _id: id, userId });
+  const existing = await collection.findOne({ _id: id, userId, familyMemberId });
 
   if (!existing) {
     return { status: "notFound" };
   }
 
   const result = await collection.updateOne(
-    { _id: id, userId, updatedAt: existing.updatedAt },
+    { _id: id, userId, familyMemberId, updatedAt: existing.updatedAt },
     {
       $set: {
         shares: input.shares,
@@ -493,7 +503,7 @@ export async function updateStockPosition(
     return { status: "conflict" };
   }
 
-  const updated = await collection.findOne({ _id: id, userId });
+  const updated = await collection.findOne({ _id: id, userId, familyMemberId });
 
   if (!updated) {
     throw new Error("修改後無法查回股票庫存");
@@ -508,10 +518,11 @@ export async function updateStockPosition(
 
 export async function deleteStockPosition(
   userId: string,
+  familyMemberId: ObjectId,
   id: ObjectId,
 ): Promise<StockPositionMutationResult> {
   const collection = await getStockPositionCollection();
-  const existing = await collection.findOne({ _id: id, userId });
+  const existing = await collection.findOne({ _id: id, userId, familyMemberId });
 
   if (!existing) {
     return { status: "notFound" };
@@ -520,6 +531,7 @@ export async function deleteStockPosition(
   const result = await collection.deleteOne({
     _id: id,
     userId,
+    familyMemberId,
     updatedAt: existing.updatedAt,
   });
 

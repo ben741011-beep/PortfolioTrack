@@ -9,6 +9,7 @@ export type UsStockAssetType = (typeof US_STOCK_ASSET_TYPES)[number];
 
 export interface UsStockPositionDocument {
   userId: string;
+  familyMemberId: ObjectId;
   stockCode: string;
   stockName: string;
   assetType: UsStockAssetType;
@@ -41,6 +42,7 @@ export const usStockPositionJsonSchema = {
   bsonType: "object",
   required: [
     "userId",
+    "familyMemberId",
     "stockCode",
     "stockName",
     "assetType",
@@ -53,6 +55,7 @@ export const usStockPositionJsonSchema = {
   properties: {
     _id: { bsonType: "objectId" },
     userId: { bsonType: "string", minLength: 1, maxLength: 100 },
+    familyMemberId: { bsonType: "objectId" },
     stockCode: { bsonType: "string", minLength: 1, maxLength: 10 },
     stockName: { bsonType: "string", minLength: 1, maxLength: 100 },
     assetType: { enum: US_STOCK_ASSET_TYPES },
@@ -206,10 +209,10 @@ export async function getUsStockPositionCollection(): Promise<
     .collection<UsStockPositionDocument>(US_STOCK_POSITION_COLLECTION);
 }
 
-export async function listUsStockPositions(userId: string) {
+export async function listUsStockPositions(userId: string, familyMemberId: ObjectId) {
   const collection = await getUsStockPositionCollection();
   return collection
-    .find({ userId })
+    .find({ userId, familyMemberId })
     .sort({ createdAt: -1 })
     .limit(100)
     .toArray();
@@ -223,6 +226,7 @@ export async function insertUsStockPosition(
   const inserted = await collection.findOne({
     _id: result.insertedId,
     userId: document.userId,
+    familyMemberId: document.familyMemberId,
   });
 
   if (!inserted) {
@@ -234,18 +238,19 @@ export async function insertUsStockPosition(
 
 export async function updateUsStockPosition(
   userId: string,
+  familyMemberId: ObjectId,
   id: ObjectId,
   input: UpdateUsStockPositionInput,
 ): Promise<UsStockPositionMutationResult> {
   const collection = await getUsStockPositionCollection();
-  const existing = await collection.findOne({ _id: id, userId });
+  const existing = await collection.findOne({ _id: id, userId, familyMemberId });
 
   if (!existing) {
     return { status: "notFound" };
   }
 
   const result = await collection.updateOne(
-    { _id: id, userId, updatedAt: existing.updatedAt },
+    { _id: id, userId, familyMemberId, updatedAt: existing.updatedAt },
     { $set: { ...input, updatedAt: new Date() } },
   );
 
@@ -253,7 +258,7 @@ export async function updateUsStockPosition(
     return { status: "conflict" };
   }
 
-  const updated = await collection.findOne({ _id: id, userId });
+  const updated = await collection.findOne({ _id: id, userId, familyMemberId });
 
   if (!updated) {
     throw new Error("修改後無法依 ID 查回美股庫存");
@@ -268,10 +273,11 @@ export async function updateUsStockPosition(
 
 export async function deleteUsStockPosition(
   userId: string,
+  familyMemberId: ObjectId,
   id: ObjectId,
 ): Promise<UsStockPositionMutationResult> {
   const collection = await getUsStockPositionCollection();
-  const existing = await collection.findOne({ _id: id, userId });
+  const existing = await collection.findOne({ _id: id, userId, familyMemberId });
 
   if (!existing) {
     return { status: "notFound" };
@@ -280,6 +286,7 @@ export async function deleteUsStockPosition(
   const result = await collection.deleteOne({
     _id: id,
     userId,
+    familyMemberId,
     updatedAt: existing.updatedAt,
   });
 
@@ -287,7 +294,7 @@ export async function deleteUsStockPosition(
     return { status: "conflict" };
   }
 
-  const deleted = await collection.findOne({ _id: id, userId });
+  const deleted = await collection.findOne({ _id: id, userId, familyMemberId });
 
   if (deleted) {
     throw new Error("刪除後美股庫存仍存在");

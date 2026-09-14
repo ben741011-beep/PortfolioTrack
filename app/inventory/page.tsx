@@ -6,7 +6,7 @@ import {
 } from "@/app/components/InventoryTabs";
 
 export const metadata: Metadata = {
-  title: "庫存管理｜PortfolioTrack",
+  title: "庫存管理｜家庭資產簿",
   description: "集中檢視台股與美股的股數、投資金額與持股損益",
 };
 

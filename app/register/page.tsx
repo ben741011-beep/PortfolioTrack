@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { AuthForm } from "@/app/components/AuthForm";
 
 export const metadata: Metadata = {
-  title: "建立帳號｜PortfolioTrack",
-  description: "建立 PortfolioTrack 個人投資帳號",
+  title: "建立帳號｜家庭資產簿",
+  description: "建立家庭資產簿帳號，管理自己與孩子的投資資料",
 };
 
 export default function RegisterPage() {

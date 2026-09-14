@@ -2,7 +2,8 @@ import { MongoServerError } from "mongodb";
 import { NextResponse } from "next/server";
 
 import {
-  getAuthenticatedUserId,
+  familyMemberRequiredResponse,
+  getAuthenticatedPortfolioContext,
   unauthorizedResponse,
 } from "@/lib/auth-session";
 import {
@@ -21,10 +22,11 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const context = await getAuthenticatedPortfolioContext(request.headers);
+    if (!context) return unauthorizedResponse();
+    if (!context.familyMemberId) return familyMemberRequiredResponse();
 
-    const documents = await listStockPositions(userId);
+    const documents = await listStockPositions(context.userId, context.familyMemberId);
     const items = await serializeStockPositionsWithValuations(documents);
 
     return NextResponse.json({ items });
@@ -36,8 +38,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const context = await getAuthenticatedPortfolioContext(request.headers);
+    if (!context) return unauthorizedResponse();
+    if (!context.familyMemberId) return familyMemberRequiredResponse();
 
     let body: unknown;
 
@@ -62,7 +65,8 @@ export async function POST(request: Request) {
 
     const now = new Date();
     const document: StockPositionDocument = {
-      userId,
+      userId: context.userId,
+      familyMemberId: context.familyMemberId,
       stockCode: stock.stockCode,
       stockName: stock.stockName,
       assetType: stock.assetType,

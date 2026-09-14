@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import {
-  getAuthenticatedUserId,
+  familyMemberRequiredResponse,
+  getAuthenticatedPortfolioContext,
   unauthorizedResponse,
 } from "@/lib/auth-session";
 import { getDailyUsdTwdExchangeRate } from "@/lib/exchange-rate-service";
@@ -15,12 +16,13 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const context = await getAuthenticatedPortfolioContext(request.headers);
+    if (!context) return unauthorizedResponse();
+    if (!context.familyMemberId) return familyMemberRequiredResponse();
 
     const [taiwanDocuments, usDocuments, exchangeRate] = await Promise.all([
-      listStockPositions(userId),
-      listUsStockPositions(userId),
+      listStockPositions(context.userId, context.familyMemberId),
+      listUsStockPositions(context.userId, context.familyMemberId),
       getDailyUsdTwdExchangeRate(),
     ]);
     const [taiwanItems, usResponse] = await Promise.all([

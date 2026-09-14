@@ -41,13 +41,14 @@ export function AuthForm({ mode }: AuthFormProps) {
     setPending(true);
 
     const formData = new FormData(event.currentTarget);
+    const displayName = String(formData.get("name") ?? "").trim();
     const email = String(formData.get("email") ?? "").trim().toLowerCase();
     const password = String(formData.get("password") ?? "");
 
     try {
       const result = isRegister
         ? await authClient.signUp.email({
-            name: String(formData.get("name") ?? "").trim(),
+            name: displayName,
             email,
             password,
           })
@@ -58,7 +59,27 @@ export function AuthForm({ mode }: AuthFormProps) {
         return;
       }
 
-      router.push("/inventory");
+      if (isRegister) {
+        const memberResponse = await fetch("/api/family-members", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: displayName,
+            relationship: "self",
+            birthDate: null,
+          }),
+        });
+        if (memberResponse.ok) {
+          const member = (await memberResponse.json()) as { id: string };
+          await fetch("/api/family-members/active", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ familyMemberId: member.id }),
+          });
+        }
+      }
+
+      router.push(isRegister ? "/family" : "/inventory");
       router.refresh();
     } catch {
       setError("目前無法連線登入系統，請稍後再試");

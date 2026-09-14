@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
 import {
-  getAuthenticatedUserId,
+  familyMemberRequiredResponse,
+  getAuthenticatedPortfolioContext,
   unauthorizedResponse,
 } from "@/lib/auth-session";
 import { DividendSourceError } from "@/lib/dividend-sources";
@@ -17,12 +18,14 @@ export const maxDuration = 30;
 
 export async function GET(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const context = await getAuthenticatedPortfolioContext(request.headers);
+    if (!context) return unauthorizedResponse();
+    if (!context.familyMemberId) return familyMemberRequiredResponse();
 
-    const positions = await listStockPositions(userId);
+    const positions = await listStockPositions(context.userId, context.familyMemberId);
     const records = await listDividendRecords(
-      userId,
+      context.userId,
+      context.familyMemberId,
       positions.map((position) => position.stockCode),
     );
 
@@ -42,11 +45,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await getAuthenticatedUserId(request.headers);
-    if (!userId) return unauthorizedResponse();
+    const context = await getAuthenticatedPortfolioContext(request.headers);
+    if (!context) return unauthorizedResponse();
+    if (!context.familyMemberId) return familyMemberRequiredResponse();
 
     const dryRun = new URL(request.url).searchParams.get("dryRun") === "1";
-    const result = await syncDividendRecords(userId, { dryRun });
+    const result = await syncDividendRecords(context.userId, context.familyMemberId, { dryRun });
 
     return NextResponse.json(result);
   } catch (error) {

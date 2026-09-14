@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "auth:bootstrap": "tsx --env-file=.env.local scripts/auth-bootstrap.ts"
+    "auth:bootstrap": "tsx --env-file=.env.local scripts/auth-bootstrap.ts",
+    "family:migrate": "tsx --env-file=.env.local scripts/family-members-migration.ts"
   },
   "dependencies": {
     "better-auth": "^1.7.4",

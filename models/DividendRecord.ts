@@ -1,4 +1,4 @@
-import { type Collection, type WithId } from "mongodb";
+import { ObjectId, type Collection, type WithId } from "mongodb";
 
 import clientPromise from "@/lib/mongodb";
 import {
@@ -21,6 +21,7 @@ export type DividendStatus = "pending" | "paid";
 
 export interface DividendRecordDocument {
   userId: string;
+  familyMemberId: ObjectId;
   stockCode: string;
   stockName: string;
   assetType: StockPositionDocument["assetType"];
@@ -48,6 +49,7 @@ export const dividendRecordJsonSchema = {
   bsonType: "object",
   required: [
     "userId",
+    "familyMemberId",
     "stockCode",
     "stockName",
     "assetType",
@@ -69,6 +71,7 @@ export const dividendRecordJsonSchema = {
   properties: {
     _id: { bsonType: "objectId" },
     userId: { bsonType: "string", minLength: 1, maxLength: 100 },
+    familyMemberId: { bsonType: "objectId" },
     stockCode: { bsonType: "string", minLength: 1, maxLength: 20 },
     stockName: { bsonType: "string", minLength: 1, maxLength: 100 },
     assetType: { enum: STOCK_ASSET_TYPES },
@@ -121,7 +124,7 @@ export async function assertDividendRecordCollectionReady() {
   const hasUniqueEventIndex = indexes.some(
     (index) =>
       index.name ===
-        "userId_1_source_1_stockCode_1_exDividendDate_1" && index.unique,
+        "userId_1_familyMemberId_1_source_1_stockCode_1_exDividendDate_1" && index.unique,
   );
 
   if (!hasUniqueEventIndex) {
@@ -131,6 +134,7 @@ export async function assertDividendRecordCollectionReady() {
 
 export async function findDividendRecordsByKeys(
   userId: string,
+  familyMemberId: ObjectId,
   keys: DividendRecordKey[],
 ) {
   if (keys.length === 0) {
@@ -141,6 +145,7 @@ export async function findDividendRecordsByKeys(
   return collection
     .find({
       userId,
+      familyMemberId,
       $or: keys.map((key) => ({
         source: key.source,
         stockCode: key.stockCode,
@@ -152,6 +157,7 @@ export async function findDividendRecordsByKeys(
 
 export async function listDividendRecords(
   userId: string,
+  familyMemberId: ObjectId,
   stockCodes: string[],
 ) {
   if (stockCodes.length === 0) {
@@ -162,6 +168,7 @@ export async function listDividendRecords(
   return collection
     .find({
       userId,
+      familyMemberId,
       stockCode: { $in: stockCodes },
       dividendYear: { $gte: DIVIDEND_START_YEAR },
     })
