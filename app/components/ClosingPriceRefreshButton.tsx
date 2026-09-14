@@ -29,6 +29,10 @@ export function ClosingPriceRefreshButton({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [status, setStatus] = useState<RefreshStatus>(null);
   const marketLabel = market === "tw" ? "台股" : "美股";
+  const updateHint =
+    market === "tw"
+      ? "建議台股交易日 15:30 後更新"
+      : "建議台灣時間於美股交易日隔天 06:00 後更新；週末與休市日不會有新收盤價";
 
   async function handleRefresh() {
     setIsRefreshing(true);
@@ -91,6 +95,9 @@ export function ClosingPriceRefreshButton({
       >
         {isRefreshing ? "更新中…" : `手動更新${marketLabel}收盤價`}
       </button>
+      <p className="max-w-sm text-xs leading-5 text-slate-500 sm:text-right">
+        {updateHint}
+      </p>
       {status ? (
         <p
           role={status.type === "error" ? "alert" : "status"}
