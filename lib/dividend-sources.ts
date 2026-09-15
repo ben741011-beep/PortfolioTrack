@@ -3,6 +3,7 @@ import {
   type DividendSource,
 } from "@/models/DividendRecord";
 import type { StockPositionDocument } from "@/models/StockPosition";
+import type { UsStockPositionDocument } from "@/models/UsStockPosition";
 
 const TWSE_STOCK_DIVIDEND_URL =
   "https://openapi.twse.com.tw/v1/exchangeReport/TWT48U_ALL";
@@ -13,12 +14,15 @@ const TPEX_STOCK_DIVIDEND_URL =
 const TWSE_ETF_DIVIDEND_URL =
   "https://www.twse.com.tw/zh/ETFortune/dividendList";
 const TPEX_ETF_DIVIDEND_URL = "https://info.tpex.org.tw/api/etfExDiv";
+const YAHOO_FINANCE_CHART_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart";
 const SOURCE_TIMEOUT_MS = 12_000;
 
 type JsonObject = Record<string, unknown>;
 
 export interface ExternalDividendEvent {
   stockCode: string;
+  market: "tw" | "us";
   source: DividendSource;
   exDividendDate: Date;
   recordDate: Date | null;
@@ -176,6 +180,7 @@ async function fetchTwseStockDividends(
     return [
       {
         stockCode,
+        market: "tw",
         source: "twseStock",
         exDividendDate,
         recordDate: null,
@@ -235,6 +240,7 @@ async function fetchTwseHistoricalStockDividends(
       return [
         {
           stockCode,
+          market: "tw",
           source: "twseStock",
           exDividendDate,
           recordDate: null,
@@ -282,6 +288,7 @@ async function fetchTpexStockDividends(
     return [
       {
         stockCode,
+        market: "tw",
         source: "tpexStock",
         exDividendDate,
         recordDate: null,
@@ -330,6 +337,7 @@ async function fetchTwseEtfDividends(
 
     events.push({
       stockCode,
+      market: "tw",
       source: "twseEtf",
       exDividendDate,
       recordDate,
@@ -378,6 +386,7 @@ async function fetchTpexEtfDividends(
     return [
       {
         stockCode,
+        market: "tw",
         source: "tpexEtf",
         exDividendDate,
         recordDate: parseTaiwanDate(row.inBaseDate),
@@ -435,6 +444,98 @@ export async function fetchDividendEventsForPositions(
     ...tpexStocks,
     ...etfResults.flat(),
   ]).filter(
+    (event) => event.exDividendDate.getUTCFullYear() >= DIVIDEND_START_YEAR,
+  );
+}
+
+type YahooDividendEvent = {
+  amount?: unknown;
+  date?: unknown;
+};
+
+type YahooChartResponse = {
+  chart?: {
+    result?: Array<{
+      events?: { dividends?: Record<string, YahooDividendEvent> };
+    }>;
+  };
+};
+
+async function fetchUsDividendEvents(
+  stockCode: string,
+): Promise<ExternalDividendEvent[]> {
+  const period1 = Math.floor(
+    Date.UTC(DIVIDEND_START_YEAR, 0, 1) / 1_000,
+  );
+  const period2 = Math.floor((Date.now() + 86_400_000) / 1_000);
+  const query = new URLSearchParams({
+    period1: String(period1),
+    period2: String(period2),
+    interval: "1d",
+    events: "div",
+  });
+  const payload = (await fetchJson(
+    `${YAHOO_FINANCE_CHART_URL}/${encodeURIComponent(stockCode)}?${query}`,
+  )) as YahooChartResponse;
+  const dividends = payload.chart?.result?.[0]?.events?.dividends;
+
+  if (!dividends) {
+    return [];
+  }
+
+  return Object.values(dividends).flatMap((event) => {
+    const dividendPerShare = parsePositiveNumber(event.amount);
+    const timestamp =
+      typeof event.date === "number" && Number.isFinite(event.date)
+        ? event.date
+        : null;
+
+    if (dividendPerShare === null || timestamp === null) {
+      return [];
+    }
+
+    const sourceDate = new Date(timestamp * 1_000);
+    const exDividendDate = new Date(
+      Date.UTC(
+        sourceDate.getUTCFullYear(),
+        sourceDate.getUTCMonth(),
+        sourceDate.getUTCDate(),
+      ),
+    );
+
+    return [
+      {
+        stockCode,
+        market: "us" as const,
+        source: "yahooUs" as const,
+        exDividendDate,
+        recordDate: null,
+        paymentDate: null,
+        dividendPerShare,
+      },
+    ];
+  });
+}
+
+export async function fetchUsDividendEventsForPositions(
+  positions: UsStockPositionDocument[],
+): Promise<ExternalDividendEvent[]> {
+  const results = await Promise.allSettled(
+    positions.map((position) => fetchUsDividendEvents(position.stockCode)),
+  );
+  const events = results.flatMap((result) =>
+    result.status === "fulfilled" ? result.value : [],
+  );
+
+  if (
+    positions.length > 0 &&
+    results.length > 0 &&
+    results.every((result) => result.status === "rejected")
+  ) {
+    throw new DividendSourceError("無法取得美股配息資料");
+  }
+
+  return deduplicateEvents(events).filter(
     (event) => event.exDividendDate.getUTCFullYear() >= DIVIDEND_START_YEAR,
   );
 }

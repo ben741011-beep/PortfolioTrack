@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "auth:bootstrap": "tsx --env-file=.env.local scripts/auth-bootstrap.ts",
-    "family:migrate": "tsx --env-file=.env.local scripts/family-members-migration.ts"
+    "family:migrate": "tsx --env-file=.env.local scripts/family-members-migration.ts",
+    "dividends:setup": "tsx --env-file=.env.local scripts/dividend-records-setup.ts",
+    "us-transactions:setup": "tsx --env-file=.env.local scripts/us-stock-transactions-setup.ts"
   },
   "dependencies": {
     "better-auth": "^1.7.4",

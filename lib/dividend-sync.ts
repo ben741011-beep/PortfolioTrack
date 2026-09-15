@@ -2,10 +2,12 @@ import { ObjectId, type AnyBulkWriteOperation, type WithId } from "mongodb";
 
 import {
   fetchDividendEventsForPositions,
+  fetchUsDividendEventsForPositions,
   type ExternalDividendEvent,
 } from "@/lib/dividend-sources";
 import {
   assertDividendRecordCollectionReady,
+  calculateDividendAmounts,
   findDividendRecordsByKeys,
   getDividendRecordCollection,
   type DividendRecordDocument,
@@ -14,6 +16,10 @@ import {
   listStockPositions,
   type StockPositionDocument,
 } from "@/models/StockPosition";
+import {
+  listUsStockPositions,
+  type UsStockPositionDocument,
+} from "@/models/UsStockPosition";
 
 export interface DividendSyncResult {
   dryRun: boolean;
@@ -25,10 +31,6 @@ export interface DividendSyncResult {
   skippedCount: number;
   verifiedCount: number;
   syncedAt: string;
-}
-
-function roundAmount(value: number) {
-  return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
 }
 
 function getTaipeiTodayUtc(now: Date) {
@@ -64,12 +66,17 @@ function makeRecordKey(
 function toNewDividendRecord(
   userId: string,
   familyMemberId: ObjectId,
-  position: WithId<StockPositionDocument>,
+  position: WithId<StockPositionDocument | UsStockPositionDocument>,
   event: ExternalDividendEvent,
   now: Date,
   today: Date,
 ): DividendRecordDocument {
   const shouldLock = event.exDividendDate <= today;
+  const amounts = calculateDividendAmounts({
+    market: event.market,
+    dividendPerShare: event.dividendPerShare,
+    entitledShares: position.shares,
+  });
 
   return {
     userId,
@@ -77,6 +84,8 @@ function toNewDividendRecord(
     stockCode: position.stockCode,
     stockName: position.stockName,
     assetType: position.assetType,
+    market: event.market,
+    currency: event.market === "us" ? "USD" : "TWD",
     source: event.source,
     dividendYear: event.exDividendDate.getUTCFullYear(),
     exDividendDate: event.exDividendDate,
@@ -84,7 +93,7 @@ function toNewDividendRecord(
     paymentDate: event.paymentDate,
     dividendPerShare: event.dividendPerShare,
     entitledShares: position.shares,
-    grossAmount: roundAmount(event.dividendPerShare * position.shares),
+    ...amounts,
     status: isPaid(event, today) ? "paid" : "pending",
     lockedAt: shouldLock ? now : null,
     sourceUpdatedAt: now,
@@ -99,7 +108,14 @@ export async function syncDividendRecords(
   options?: { dryRun?: boolean },
 ) {
   const dryRun = options?.dryRun ?? false;
-  const positions = await listStockPositions(userId, familyMemberId);
+  const [twPositions, usPositions] = await Promise.all([
+    listStockPositions(userId, familyMemberId),
+    listUsStockPositions(userId, familyMemberId),
+  ]);
+  const positions = [
+    ...twPositions.map((position) => ({ position, market: "tw" as const })),
+    ...usPositions.map((position) => ({ position, market: "us" as const })),
+  ];
   const now = new Date();
   const today = getTaipeiTodayUtc(now);
 
@@ -117,9 +133,16 @@ export async function syncDividendRecords(
     } satisfies DividendSyncResult;
   }
 
-  const events = await fetchDividendEventsForPositions(positions);
+  const [twEvents, usEvents] = await Promise.all([
+    fetchDividendEventsForPositions(twPositions),
+    fetchUsDividendEventsForPositions(usPositions),
+  ]);
+  const events = [...twEvents, ...usEvents];
   const positionByCode = new Map(
-    positions.map((position) => [position.stockCode, position]),
+    positions.map(({ position, market }) => [
+      `${market}:${position.stockCode}`,
+      position,
+    ]),
   );
   const existingRecords = await findDividendRecordsByKeys(
     userId,
@@ -140,7 +163,7 @@ export async function syncDividendRecords(
   const affectedIds: ObjectId[] = [];
 
   for (const event of events) {
-    const position = positionByCode.get(event.stockCode);
+    const position = positionByCode.get(`${event.market}:${event.stockCode}`);
 
     if (!position) {
       continue;
@@ -170,6 +193,11 @@ export async function syncDividendRecords(
     const entitledShares = existing.lockedAt
       ? existing.entitledShares
       : position.shares;
+    const amounts = calculateDividendAmounts({
+      market: event.market,
+      dividendPerShare: event.dividendPerShare,
+      entitledShares,
+    });
     const lockedAt =
       existing.lockedAt ?? (event.exDividendDate <= today ? now : null);
 
@@ -180,12 +208,14 @@ export async function syncDividendRecords(
           $set: {
             stockName: position.stockName,
             assetType: position.assetType,
+            market: event.market,
+            currency: event.market === "us" ? "USD" : "TWD",
             dividendYear: event.exDividendDate.getUTCFullYear(),
             recordDate: event.recordDate,
             paymentDate: event.paymentDate,
             dividendPerShare: event.dividendPerShare,
             entitledShares,
-            grossAmount: roundAmount(event.dividendPerShare * entitledShares),
+            ...amounts,
             status: isPaid(event, today) ? "paid" : "pending",
             lockedAt,
             sourceUpdatedAt: now,

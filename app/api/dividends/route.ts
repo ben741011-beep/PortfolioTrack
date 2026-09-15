@@ -12,6 +12,7 @@ import {
   serializeDividendRecord,
 } from "@/models/DividendRecord";
 import { listStockPositions } from "@/models/StockPosition";
+import { listUsStockPositions } from "@/models/UsStockPosition";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -22,20 +23,33 @@ export async function GET(request: Request) {
     if (!context) return unauthorizedResponse();
     if (!context.familyMemberId) return familyMemberRequiredResponse();
 
-    const positions = await listStockPositions(context.userId, context.familyMemberId);
-    const records = await listDividendRecords(
-      context.userId,
-      context.familyMemberId,
-      positions.map((position) => position.stockCode),
-    );
+    const [positions, usPositions, records] = await Promise.all([
+      listStockPositions(context.userId, context.familyMemberId),
+      listUsStockPositions(context.userId, context.familyMemberId),
+      listDividendRecords(
+        context.userId,
+        context.familyMemberId,
+      ),
+    ]);
 
     return NextResponse.json({
       items: records.map(serializeDividendRecord),
-      positions: positions.map((position) => ({
-        stockCode: position.stockCode,
-        stockName: position.stockName,
-        principal: position.principal,
-      })),
+      positions: [
+        ...positions.map((position) => ({
+          stockCode: position.stockCode,
+          stockName: position.stockName,
+          principal: position.principal,
+          market: "tw",
+          currency: "TWD",
+        })),
+        ...usPositions.map((position) => ({
+          stockCode: position.stockCode,
+          stockName: position.stockName,
+          principal: position.principal,
+          market: "us",
+          currency: "USD",
+        })),
+      ],
     });
   } catch (error) {
     console.error("Failed to list dividend records", error);

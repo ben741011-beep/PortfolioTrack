@@ -6,17 +6,24 @@ import { readApiError } from "@/app/components/stock-ui";
 
 type DividendStatusFilter = "all" | "paid" | "pending";
 type DividendStatus = Exclude<DividendStatusFilter, "all">;
+type DividendMarket = "tw" | "us";
+type DividendCurrency = "TWD" | "USD";
 
 type DividendRecord = {
   id: string;
   stockCode: string;
   stockName: string;
+  market: DividendMarket;
+  currency: DividendCurrency;
   dividendYear: number;
   exDividendDate: string;
   paymentDate: string | null;
   dividendPerShare: number;
   entitledShares: number;
   grossAmount: number;
+  withholdingTaxRate: number;
+  withholdingTax: number;
+  netAmount: number;
   status: DividendStatus;
 };
 
@@ -29,6 +36,8 @@ type DividendPosition = {
   stockCode: string;
   stockName: string;
   principal: number;
+  market: DividendMarket;
+  currency: DividendCurrency;
 };
 
 type DividendSyncResponse = {
@@ -56,11 +65,19 @@ const statusFilters: Array<{
   { value: "pending", label: "待發放" },
 ];
 
-const currencyFormatter = new Intl.NumberFormat("zh-TW", {
-  style: "currency",
-  currency: "TWD",
-  maximumFractionDigits: 0,
-});
+const currencyFormatters: Record<DividendCurrency, Intl.NumberFormat> = {
+  TWD: new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency: "TWD",
+    maximumFractionDigits: 0,
+  }),
+  USD: new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }),
+};
 
 const numberFormatter = new Intl.NumberFormat("zh-TW", {
   maximumFractionDigits: 6,
@@ -82,10 +99,16 @@ function formatDate(value: string) {
   return dateFormatter.format(new Date(value));
 }
 
+function formatCurrency(value: number, currency: DividendCurrency) {
+  return currencyFormatters[currency].format(value);
+}
+
 export function DividendOverview({ currentYear }: { currentYear: number }) {
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [statusFilter, setStatusFilter] =
     useState<DividendStatusFilter>("all");
+  const [selectedMarket, setSelectedMarket] =
+    useState<DividendMarket>("tw");
   const [records, setRecords] = useState<DividendRecord[]>([]);
   const [positions, setPositions] = useState<DividendPosition[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -170,7 +193,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
         type: "success",
         message:
           result.positionCount === 0
-            ? "目前沒有台股庫存可查詢股息"
+            ? "目前沒有台股或美股庫存可查詢股息"
             : `已查詢 ${result.fetchedCount} 筆；新增 ${result.insertedCount} 筆、修改 ${result.modifiedCount} 筆，依 ID 查回 ${result.verifiedCount} 筆`,
       });
     } catch (error) {
@@ -183,17 +206,34 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
     }
   }
 
+  const marketRecords = useMemo(
+    () => records.filter((record) => record.market === selectedMarket),
+    [records, selectedMarket],
+  );
+
+  const marketPositions = useMemo(
+    () => positions.filter((position) => position.market === selectedMarket),
+    [positions, selectedMarket],
+  );
+
+  const selectedCurrency: DividendCurrency =
+    selectedMarket === "us" ? "USD" : "TWD";
+
   const years = useMemo(
     () =>
       Array.from(
-        new Set([currentYear, ...records.map((record) => record.dividendYear)]),
+        new Set([
+          currentYear,
+          ...marketRecords.map((record) => record.dividendYear),
+        ]),
       ).sort((a, b) => b - a),
-    [currentYear, records],
+    [currentYear, marketRecords],
   );
 
   const yearRecords = useMemo(
-    () => records.filter((record) => record.dividendYear === selectedYear),
-    [records, selectedYear],
+    () =>
+      marketRecords.filter((record) => record.dividendYear === selectedYear),
+    [marketRecords, selectedYear],
   );
 
   const paidRecords = useMemo(
@@ -215,22 +255,26 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
   );
 
   const totalPrincipal = useMemo(
-    () => positions.reduce((total, position) => total + position.principal, 0),
-    [positions],
+    () =>
+      marketPositions.reduce(
+        (total, position) => total + position.principal,
+        0,
+      ),
+    [marketPositions],
   );
 
   const annualSummaries = useMemo(
     () =>
       years.map((year) => {
-        const annualRecords = records.filter(
+        const annualRecords = marketRecords.filter(
           (record) => record.dividendYear === year,
         );
         const paid = annualRecords
           .filter((record) => record.status === "paid")
-          .reduce((total, record) => total + record.grossAmount, 0);
+          .reduce((total, record) => total + record.netAmount, 0);
         const pending = annualRecords
           .filter((record) => record.status === "pending")
-          .reduce((total, record) => total + record.grossAmount, 0);
+          .reduce((total, record) => total + record.netAmount, 0);
         const total = paid + pending;
 
         return {
@@ -241,15 +285,15 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
           yieldOnCost: totalPrincipal > 0 ? total / totalPrincipal : null,
         };
       }),
-    [records, totalPrincipal, years],
+    [marketRecords, totalPrincipal, years],
   );
 
   const paidAmount = paidRecords.reduce(
-    (total, record) => total + record.grossAmount,
+    (total, record) => total + record.netAmount,
     0,
   );
   const pendingAmount = pendingRecords.reduce(
-    (total, record) => total + record.grossAmount,
+    (total, record) => total + record.netAmount,
     0,
   );
   const annualAmount = paidAmount + pendingAmount;
@@ -307,16 +351,41 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
           </div>
         </header>
 
+        <div
+          className="mb-6 inline-grid grid-cols-2 gap-1 rounded-xl border border-slate-300 bg-white p-1 shadow-sm"
+          role="group"
+          aria-label="選擇股息市場"
+        >
+          {([
+            { value: "tw" as const, label: "台股 TWD" },
+            { value: "us" as const, label: "美股 USD" },
+          ]).map((market) => (
+            <button
+              key={market.value}
+              type="button"
+              aria-pressed={selectedMarket === market.value}
+              onClick={() => setSelectedMarket(market.value)}
+              className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${
+                selectedMarket === market.value
+                  ? "bg-slate-950 text-white shadow-sm"
+                  : "text-slate-600 hover:text-slate-950"
+              }`}
+            >
+              {market.label}
+            </button>
+          ))}
+        </div>
+
         <section
           aria-label={`${selectedYear} 年股息摘要`}
           className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
         >
           <article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm sm:p-6">
             <p className="text-xs font-medium text-slate-500">
-              {selectedYear} 年已入帳
+              {selectedYear} 年已入帳{selectedMarket === "us" ? "（稅後）" : ""}
             </p>
             <p className="mt-2 text-2xl font-bold text-emerald-700 tabular-nums">
-              {currencyFormatter.format(paidAmount)}
+              {formatCurrency(paidAmount, selectedCurrency)}
             </p>
             <p className="mt-2 text-sm text-slate-500">
               {paidRecords.length} 筆
@@ -326,7 +395,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
           <article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm sm:p-6">
             <p className="text-xs font-medium text-slate-500">等待發放</p>
             <p className="mt-2 text-2xl font-bold text-amber-700 tabular-nums">
-              {currencyFormatter.format(pendingAmount)}
+              {formatCurrency(pendingAmount, selectedCurrency)}
             </p>
             <p className="mt-2 text-sm text-slate-500">
               {pendingRecords.length} 筆
@@ -334,9 +403,11 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
           </article>
 
           <article className="rounded-xl border border-slate-300 bg-white p-5 shadow-sm sm:p-6">
-            <p className="text-xs font-medium text-slate-500">全年合計</p>
+            <p className="text-xs font-medium text-slate-500">
+              {selectedMarket === "us" ? "全年實收" : "全年合計"}
+            </p>
             <p className="mt-2 text-2xl font-bold tabular-nums">
-              {currencyFormatter.format(annualAmount)}
+              {formatCurrency(annualAmount, selectedCurrency)}
             </p>
             <p className="mt-2 text-sm text-slate-500">已入帳＋待發放</p>
           </article>
@@ -351,7 +422,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
                 : `${percentageFormatter.format(annualYieldOnCost * 100)}%`}
             </p>
             <p className="mt-2 text-sm text-emerald-200">
-              以目前投入本金 {currencyFormatter.format(totalPrincipal)} 計算
+              以目前投入本金 {formatCurrency(totalPrincipal, selectedCurrency)} 計算
             </p>
           </article>
         </section>
@@ -373,7 +444,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
               </h2>
             </div>
             <p className="text-sm text-slate-500">
-              投入本金 {currencyFormatter.format(totalPrincipal)}
+              投入本金 {formatCurrency(totalPrincipal, selectedCurrency)}
             </p>
           </div>
 
@@ -396,7 +467,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
                       {summary.year} 年度股息
                     </p>
                     <p className="mt-1 text-xl font-bold text-slate-950 tabular-nums">
-                      {currencyFormatter.format(summary.total)}
+                      {formatCurrency(summary.total, selectedCurrency)}
                     </p>
                   </div>
                   <div className="text-right">
@@ -414,13 +485,13 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
                   <p className="text-slate-500">
                     已入帳
                     <span className="mt-1 block font-bold text-emerald-700 tabular-nums">
-                      {currencyFormatter.format(summary.paid)}
+                      {formatCurrency(summary.paid, selectedCurrency)}
                     </span>
                   </p>
                   <p className="text-slate-500">
                     待發放
                     <span className="mt-1 block font-bold text-amber-700 tabular-nums">
-                      {currencyFormatter.format(summary.pending)}
+                      {formatCurrency(summary.pending, selectedCurrency)}
                     </span>
                   </p>
                 </div>
@@ -429,7 +500,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
           </div>
 
           <p className="mt-4 text-xs leading-5 text-slate-500">
-            成本殖利率＝該年度股息合計 ÷ 目前持股投入本金；年度股息包含已入帳與待發放金額。
+            成本殖利率＝該年度{selectedMarket === "us" ? "稅後實收" : "股息合計"} ÷ 目前持股投入本金；年度股息包含已入帳與待發放金額。
           </p>
         </section>
 
@@ -545,14 +616,28 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
                         : "發放日待公告"}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">
-                      每股 {numberFormatter.format(record.dividendPerShare)} 元 ×{" "}
+                      每股 {numberFormatter.format(record.dividendPerShare)} {record.currency} ×{" "}
                       {numberFormatter.format(record.entitledShares)} 股
                     </p>
+                    {record.market === "us" ? (
+                      <p className="mt-1 text-sm text-slate-500">
+                        現金股利 {formatCurrency(record.grossAmount, record.currency)}
+                        <span className="mx-2 text-slate-300" aria-hidden="true">
+                          ｜
+                        </span>
+                        預扣稅 {formatCurrency(record.withholdingTax, record.currency)}（{percentageFormatter.format(record.withholdingTaxRate * 100)}%）
+                      </p>
+                    ) : null}
                   </div>
 
-                  <p className="text-xl font-bold text-slate-950 tabular-nums sm:text-right">
-                    {currencyFormatter.format(record.grossAmount)}
-                  </p>
+                  <div className="sm:text-right">
+                    {record.market === "us" ? (
+                      <p className="text-xs font-medium text-slate-500">實收</p>
+                    ) : null}
+                    <p className="text-xl font-bold text-slate-950 tabular-nums">
+                      {formatCurrency(record.netAmount, record.currency)}
+                    </p>
+                  </div>
                 </article>
               ))}
             </div>
@@ -560,7 +645,7 @@ export function DividendOverview({ currentYear }: { currentYear: number }) {
         </section>
 
         <p className="mt-3 text-xs leading-5 text-slate-500">
-          預估金額以除息日鎖定的持有股數計算；實際入帳以券商紀錄為準。
+          預估金額以除息日鎖定的持有股數計算；美股預扣稅按現金股利 30% 並四捨五入到美分，實際入帳以券商紀錄為準。
         </p>
       </div>
     </main>

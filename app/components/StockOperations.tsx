@@ -20,12 +20,12 @@ type Message = {
 type StockLookup = {
   stockCode: string;
   stockName: string;
-  market: "TWSE" | "TPEx";
+  market?: "TWSE" | "TPEx";
   assetType: StockAssetType;
 };
 
 type StockTransactionResponse = {
-  item: StockPosition | null;
+  item: Pick<StockPosition, "shares"> | null;
   transaction: {
     stockCode: string;
     side: "buy" | "sell";
@@ -34,15 +34,38 @@ type StockTransactionResponse = {
     price: number;
     grossAmount: number;
     transactionFee: number;
-    transactionTax: number;
+    transactionTax?: number;
+    secFee?: number;
+    tafFee?: number;
     cashAmount: number;
     costBasisReduction: number;
     realizedProfitLoss: number;
   };
 };
 
+type CompletedStockTransaction = StockTransactionResponse & {
+  market: "taiwan" | "us";
+};
+
 const inputClassName =
   "w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-emerald-600 focus:ring-4 focus:ring-emerald-100";
+
+const usdCurrencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
+const shareFormatter = new Intl.NumberFormat("zh-TW", {
+  maximumFractionDigits: 6,
+});
+
+function formatTradeCurrency(value: number, market: "taiwan" | "us") {
+  return market === "taiwan"
+    ? currencyFormatter.format(value)
+    : usdCurrencyFormatter.format(value);
+}
 
 function MessageText({ message }: { message: Message | null }) {
   return (
@@ -72,6 +95,7 @@ export function StockOperations() {
   const [isCreating, setIsCreating] = useState(false);
   const [initialMessage, setInitialMessage] = useState<Message | null>(null);
 
+  const [tradeMarket, setTradeMarket] = useState<"taiwan" | "us">("taiwan");
   const [tradeSide, setTradeSide] = useState<"buy" | "sell">("buy");
   const [tradeStockCode, setTradeStockCode] = useState("");
   const [tradeLookup, setTradeLookup] = useState<StockLookup | null>(null);
@@ -82,12 +106,14 @@ export function StockOperations() {
   const [isTrading, setIsTrading] = useState(false);
   const [tradeMessage, setTradeMessage] = useState<Message | null>(null);
   const [lastTransaction, setLastTransaction] =
-    useState<StockTransactionResponse | null>(null);
+    useState<CompletedStockTransaction | null>(null);
 
   useEffect(() => {
     const normalizedCode = tradeStockCode.trim().toUpperCase();
 
-    if (normalizedCode.length < 4) {
+    const minimumCodeLength = tradeMarket === "taiwan" ? 4 : 1;
+
+    if (normalizedCode.length < minimumCodeLength) {
       return;
     }
 
@@ -98,8 +124,12 @@ export function StockOperations() {
       setTradeLookupError("");
 
       try {
+        const endpoint =
+          tradeMarket === "taiwan"
+            ? "/api/stocks/name"
+            : "/api/us-stocks/profile";
         const response = await fetch(
-          `/api/stocks/name?code=${encodeURIComponent(normalizedCode)}`,
+          `${endpoint}?code=${encodeURIComponent(normalizedCode)}`,
           { signal: controller.signal },
         );
 
@@ -115,7 +145,9 @@ export function StockOperations() {
         }
 
         setTradeLookupError(
-          error instanceof Error ? error.message : "查詢股票名稱失敗",
+          error instanceof Error
+            ? error.message
+            : `查詢${tradeMarket === "taiwan" ? "台股" : "美股"}名稱失敗`,
         );
       } finally {
         if (!controller.signal.aborted) {
@@ -128,7 +160,7 @@ export function StockOperations() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [tradeStockCode]);
+  }, [tradeMarket, tradeStockCode]);
 
   async function lookupInitialStock() {
     const normalizedCode = initialStockCode.trim().toUpperCase();
@@ -220,7 +252,11 @@ export function StockOperations() {
     setLastTransaction(null);
 
     try {
-      const response = await fetch("/api/stock-transactions", {
+      const response = await fetch(
+        tradeMarket === "taiwan"
+          ? "/api/stock-transactions"
+          : "/api/us-stock-transactions",
+        {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -229,14 +265,15 @@ export function StockOperations() {
           shares: tradeShares,
           price: tradePrice,
         }),
-      });
+        },
+      );
 
       if (!response.ok) {
         throw new Error(await readApiError(response));
       }
 
       const body = (await response.json()) as StockTransactionResponse;
-      setLastTransaction(body);
+      setLastTransaction({ ...body, market: tradeMarket });
       setTradeStockCode("");
       setTradeLookup(null);
       setTradeShares("");
@@ -247,7 +284,10 @@ export function StockOperations() {
       });
     } catch (error) {
       setTradeMessage({
-        text: error instanceof Error ? error.message : "股票交易失敗",
+        text:
+          error instanceof Error
+            ? error.message
+            : `${tradeMarket === "taiwan" ? "台股" : "美股"}交易失敗`,
         type: "error",
       });
     } finally {
@@ -447,11 +487,49 @@ export function StockOperations() {
               </p>
               <h2 className="mt-2 text-xl font-bold">買入／賣出</h2>
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                手續費與交易稅由伺服器自動計算，成交後直接更新目前庫存。
+                {tradeMarket === "taiwan"
+                  ? "手續費與交易稅由伺服器自動計算，成交後直接更新目前庫存。"
+                  : "買進與賣出皆只計 0.2% 手續費，成交後直接更新美元庫存成本。"}
               </p>
             </div>
 
             <form onSubmit={submitTrade} className="space-y-5">
+              <fieldset>
+                <legend className="mb-2 text-sm font-semibold">交易市場</legend>
+                <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1.5">
+                  {(
+                    [
+                      { label: "台股", value: "taiwan" },
+                      { label: "美股", value: "us" },
+                    ] as const
+                  ).map((market) => (
+                    <label key={market.value} className="cursor-pointer">
+                      <input
+                        type="radio"
+                        name="tradeMarket"
+                        value={market.value}
+                        checked={tradeMarket === market.value}
+                        onChange={() => {
+                          setTradeMarket(market.value);
+                          setTradeStockCode("");
+                          setTradeLookup(null);
+                          setTradeLookupError("");
+                          setIsTradeLookingUp(false);
+                          setTradeShares("");
+                          setTradePrice("");
+                          setTradeMessage(null);
+                          setLastTransaction(null);
+                        }}
+                        className="peer sr-only"
+                      />
+                      <span className="block rounded-lg px-4 py-2.5 text-center text-sm font-bold text-slate-600 transition peer-checked:bg-white peer-checked:text-slate-950 peer-checked:shadow-sm peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-emerald-600">
+                        {market.label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
               <fieldset>
                 <legend className="mb-2 text-sm font-semibold">交易方向</legend>
                 <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1.5">
@@ -496,7 +574,7 @@ export function StockOperations() {
                     setTradeMessage(null);
                     setLastTransaction(null);
                   }}
-                  placeholder="例如：2330"
+                  placeholder={tradeMarket === "taiwan" ? "例如：2330" : "例如：AAPL"}
                   autoComplete="off"
                   required
                   className={inputClassName}
@@ -510,10 +588,13 @@ export function StockOperations() {
                   {isTradeLookingUp
                     ? "正在查詢股票名稱…"
                     : tradeLookup
-                      ? `${tradeLookup.stockCode} ${tradeLookup.stockName} · ${
-                          tradeLookup.market === "TWSE" ? "上市" : "上櫃"
-                        } · ${assetTypeLabels[tradeLookup.assetType]}`
-                      : tradeLookupError || "輸入完成後會自動顯示股票名稱"}
+                      ? `${tradeLookup.stockCode} ${tradeLookup.stockName}${
+                          tradeMarket === "taiwan"
+                            ? ` · ${tradeLookup.market === "TWSE" ? "上市" : "上櫃"} · ${assetTypeLabels[tradeLookup.assetType]}`
+                            : ""
+                        }`
+                      : tradeLookupError ||
+                        `輸入完成後會自動顯示${tradeMarket === "taiwan" ? "台股" : "美股"}名稱`}
                 </p>
               </div>
 
@@ -529,12 +610,12 @@ export function StockOperations() {
                     id="tradeShares"
                     name="tradeShares"
                     type="number"
-                    min="1"
-                    step="1"
-                    inputMode="numeric"
+                    min={tradeMarket === "taiwan" ? "1" : "0.000001"}
+                    step={tradeMarket === "taiwan" ? "1" : "any"}
+                    inputMode={tradeMarket === "taiwan" ? "numeric" : "decimal"}
                     value={tradeShares}
                     onChange={(event) => setTradeShares(event.target.value)}
-                    placeholder="例如：100"
+                    placeholder={tradeMarket === "taiwan" ? "例如：100" : "例如：1.5"}
                     required
                     className={inputClassName}
                   />
@@ -544,7 +625,7 @@ export function StockOperations() {
                     htmlFor="tradePrice"
                     className="mb-2 block text-sm font-semibold"
                   >
-                    每股成交價（TWD）
+                    每股成交價（{tradeMarket === "taiwan" ? "TWD" : "USD"}）
                   </label>
                   <input
                     id="tradePrice"
@@ -555,7 +636,7 @@ export function StockOperations() {
                     inputMode="decimal"
                     value={tradePrice}
                     onChange={(event) => setTradePrice(event.target.value)}
-                    placeholder="例如：1200"
+                    placeholder={tradeMarket === "taiwan" ? "例如：1200" : "例如：230.50"}
                     required
                     className={inputClassName}
                   />
@@ -589,32 +670,38 @@ export function StockOperations() {
                   <div>
                     <dt className="text-xs text-emerald-800/70">成交金額</dt>
                     <dd className="mt-1 font-bold tabular-nums text-emerald-950">
-                      {currencyFormatter.format(
+                      {formatTradeCurrency(
                         lastTransaction.transaction.grossAmount,
+                        lastTransaction.market,
                       )}
                     </dd>
                   </div>
                   <div className="text-right">
                     <dt className="text-xs text-emerald-800/70">交易手續費</dt>
                     <dd className="mt-1 font-bold tabular-nums text-emerald-950">
-                      {currencyFormatter.format(
+                      {formatTradeCurrency(
                         lastTransaction.transaction.transactionFee,
+                        lastTransaction.market,
                       )}
                     </dd>
                   </div>
-                  <div>
-                    <dt className="text-xs text-emerald-800/70">交易稅</dt>
-                    <dd className="mt-1 font-bold tabular-nums text-emerald-950">
-                      {currencyFormatter.format(
-                        lastTransaction.transaction.transactionTax,
-                      )}
-                    </dd>
-                  </div>
+                  {lastTransaction.market === "taiwan" ? (
+                    <div>
+                      <dt className="text-xs text-emerald-800/70">交易稅</dt>
+                      <dd className="mt-1 font-bold tabular-nums text-emerald-950">
+                        {formatTradeCurrency(
+                          lastTransaction.transaction.transactionTax ?? 0,
+                          lastTransaction.market,
+                        )}
+                      </dd>
+                    </div>
+                  ) : null}
                   <div className="text-right">
                     <dt className="text-xs text-emerald-800/70">現金流金額</dt>
                     <dd className="mt-1 font-bold tabular-nums text-emerald-950">
-                      {currencyFormatter.format(
+                      {formatTradeCurrency(
                         lastTransaction.transaction.cashAmount,
+                        lastTransaction.market,
                       )}
                     </dd>
                   </div>
@@ -622,8 +709,9 @@ export function StockOperations() {
                     <div>
                       <dt className="text-xs text-emerald-800/70">已實現損益</dt>
                       <dd className="mt-1 font-bold tabular-nums text-emerald-950">
-                        {currencyFormatter.format(
+                        {formatTradeCurrency(
                           lastTransaction.transaction.realizedProfitLoss,
+                          lastTransaction.market,
                         )}
                       </dd>
                     </div>
@@ -632,7 +720,11 @@ export function StockOperations() {
                     <dt className="text-xs text-emerald-800/70">交易後庫存</dt>
                     <dd className="mt-1 font-bold tabular-nums text-emerald-950">
                       {lastTransaction.item
-                        ? `${numberFormatter.format(lastTransaction.item.shares)} 股`
+                        ? `${
+                            lastTransaction.market === "taiwan"
+                              ? numberFormatter.format(lastTransaction.item.shares)
+                              : shareFormatter.format(lastTransaction.item.shares)
+                          } 股`
                         : "已全部售出"}
                     </dd>
                   </div>

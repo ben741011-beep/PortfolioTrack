@@ -14,10 +14,15 @@ export const DIVIDEND_SOURCES = [
   "tpexStock",
   "twseEtf",
   "tpexEtf",
+  "yahooUs",
 ] as const;
 
 export type DividendSource = (typeof DIVIDEND_SOURCES)[number];
 export type DividendStatus = "pending" | "paid";
+export type DividendMarket = "tw" | "us";
+export type DividendCurrency = "TWD" | "USD";
+
+export const US_DIVIDEND_WITHHOLDING_TAX_RATE = 0.3;
 
 export interface DividendRecordDocument {
   userId: string;
@@ -25,6 +30,8 @@ export interface DividendRecordDocument {
   stockCode: string;
   stockName: string;
   assetType: StockPositionDocument["assetType"];
+  market: DividendMarket;
+  currency: DividendCurrency;
   source: DividendSource;
   dividendYear: number;
   exDividendDate: Date;
@@ -33,6 +40,9 @@ export interface DividendRecordDocument {
   dividendPerShare: number;
   entitledShares: number;
   grossAmount: number;
+  withholdingTaxRate: number;
+  withholdingTax: number;
+  netAmount: number;
   status: DividendStatus;
   lockedAt: Date | null;
   sourceUpdatedAt: Date;
@@ -53,6 +63,8 @@ export const dividendRecordJsonSchema = {
     "stockCode",
     "stockName",
     "assetType",
+    "market",
+    "currency",
     "source",
     "dividendYear",
     "exDividendDate",
@@ -61,6 +73,9 @@ export const dividendRecordJsonSchema = {
     "dividendPerShare",
     "entitledShares",
     "grossAmount",
+    "withholdingTaxRate",
+    "withholdingTax",
+    "netAmount",
     "status",
     "lockedAt",
     "sourceUpdatedAt",
@@ -75,6 +90,8 @@ export const dividendRecordJsonSchema = {
     stockCode: { bsonType: "string", minLength: 1, maxLength: 20 },
     stockName: { bsonType: "string", minLength: 1, maxLength: 100 },
     assetType: { enum: STOCK_ASSET_TYPES },
+    market: { enum: ["tw", "us"] },
+    currency: { enum: ["TWD", "USD"] },
     source: { enum: DIVIDEND_SOURCES },
     dividendYear: { bsonType: ["int", "long"], minimum: 1900 },
     exDividendDate: { bsonType: "date" },
@@ -85,11 +102,28 @@ export const dividendRecordJsonSchema = {
       minimum: 0,
       exclusiveMinimum: true,
     },
-    entitledShares: { bsonType: ["int", "long"], minimum: 1 },
+    entitledShares: {
+      bsonType: ["int", "long", "double", "decimal"],
+      minimum: 0,
+      exclusiveMinimum: true,
+    },
     grossAmount: {
       bsonType: ["int", "long", "double", "decimal"],
       minimum: 0,
       exclusiveMinimum: true,
+    },
+    withholdingTaxRate: {
+      bsonType: ["int", "long", "double", "decimal"],
+      minimum: 0,
+      maximum: 1,
+    },
+    withholdingTax: {
+      bsonType: ["int", "long", "double", "decimal"],
+      minimum: 0,
+    },
+    netAmount: {
+      bsonType: ["int", "long", "double", "decimal"],
+      minimum: 0,
     },
     status: { enum: ["pending", "paid"] },
     lockedAt: { bsonType: ["date", "null"] },
@@ -98,6 +132,32 @@ export const dividendRecordJsonSchema = {
     updatedAt: { bsonType: "date" },
   },
 } as const;
+
+function roundTo(value: number, digits: number) {
+  const factor = 10 ** digits;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+export function calculateDividendAmounts(input: {
+  market: DividendMarket;
+  dividendPerShare: number;
+  entitledShares: number;
+}) {
+  const rawGrossAmount = input.dividendPerShare * input.entitledShares;
+  const grossAmount = roundTo(rawGrossAmount, input.market === "us" ? 2 : 6);
+  const withholdingTaxRate =
+    input.market === "us" ? US_DIVIDEND_WITHHOLDING_TAX_RATE : 0;
+  const withholdingTax =
+    input.market === "us"
+      ? roundTo(grossAmount * withholdingTaxRate, 2)
+      : 0;
+  const netAmount =
+    input.market === "us"
+      ? roundTo(grossAmount - withholdingTax, 2)
+      : grossAmount;
+
+  return { grossAmount, withholdingTaxRate, withholdingTax, netAmount };
+}
 
 export async function getDividendRecordCollection(): Promise<
   Collection<DividendRecordDocument>
@@ -158,18 +218,12 @@ export async function findDividendRecordsByKeys(
 export async function listDividendRecords(
   userId: string,
   familyMemberId: ObjectId,
-  stockCodes: string[],
 ) {
-  if (stockCodes.length === 0) {
-    return [];
-  }
-
   const collection = await getDividendRecordCollection();
   return collection
     .find({
       userId,
       familyMemberId,
-      stockCode: { $in: stockCodes },
       dividendYear: { $gte: DIVIDEND_START_YEAR },
     })
     .sort({ paymentDate: -1, exDividendDate: -1 })
@@ -184,6 +238,8 @@ export function serializeDividendRecord(
     stockCode: document.stockCode,
     stockName: document.stockName,
     assetType: document.assetType,
+    market: document.market,
+    currency: document.currency,
     source: document.source,
     dividendYear: document.dividendYear,
     exDividendDate: document.exDividendDate.toISOString(),
@@ -192,6 +248,9 @@ export function serializeDividendRecord(
     dividendPerShare: document.dividendPerShare,
     entitledShares: document.entitledShares,
     grossAmount: document.grossAmount,
+    withholdingTaxRate: document.withholdingTaxRate,
+    withholdingTax: document.withholdingTax,
+    netAmount: document.netAmount,
     status: document.status,
     lockedAt: document.lockedAt?.toISOString() ?? null,
     sourceUpdatedAt: document.sourceUpdatedAt.toISOString(),
