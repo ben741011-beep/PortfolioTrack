@@ -1,4 +1,4 @@
-import { ObjectId, type AnyBulkWriteOperation, type WithId } from "mongodb";
+import { type ObjectId, type WithId } from "mongodb";
 
 import {
   fetchDividendEventsForPositions,
@@ -6,11 +6,13 @@ import {
   type ExternalDividendEvent,
 } from "@/lib/dividend-sources";
 import {
-  assertDividendRecordCollectionReady,
+  applyDividendRecordSyncChanges,
   calculateDividendAmounts,
   findDividendRecordsByKeys,
-  getDividendRecordCollection,
+  hasDividendRecordSyncChanges,
   type DividendRecordDocument,
+  type DividendRecordSyncChange,
+  type DividendRecordSyncUpdate,
 } from "@/models/DividendRecord";
 import {
   listStockPositions,
@@ -159,8 +161,7 @@ export async function syncDividendRecords(
       record,
     ]),
   );
-  const operations: AnyBulkWriteOperation<DividendRecordDocument>[] = [];
-  const affectedIds: ObjectId[] = [];
+  const changes: DividendRecordSyncChange[] = [];
 
   for (const event of events) {
     const position = positionByCode.get(`${event.market}:${event.stockCode}`);
@@ -177,16 +178,10 @@ export async function syncDividendRecords(
     const existing = existingByKey.get(key);
 
     if (!existing) {
-      const insertedId = new ObjectId();
-      operations.push({
-        insertOne: {
-          document: {
-            _id: insertedId,
-            ...toNewDividendRecord(userId, familyMemberId, position, event, now, today),
-          },
-        },
+      changes.push({
+        kind: "insert",
+        document: toNewDividendRecord(userId, familyMemberId, position, event, now, today),
       });
-      affectedIds.push(insertedId);
       continue;
     }
 
@@ -201,58 +196,49 @@ export async function syncDividendRecords(
     const lockedAt =
       existing.lockedAt ?? (event.exDividendDate <= today ? now : null);
 
-    operations.push({
-      updateOne: {
-        filter: { _id: existing._id },
-        update: {
-          $set: {
-            stockName: position.stockName,
-            assetType: position.assetType,
-            market: event.market,
-            currency: event.market === "us" ? "USD" : "TWD",
-            dividendYear: event.exDividendDate.getUTCFullYear(),
-            recordDate: event.recordDate,
-            paymentDate: event.paymentDate,
-            dividendPerShare: event.dividendPerShare,
-            entitledShares,
-            ...amounts,
-            status: isPaid(event, today) ? "paid" : "pending",
-            lockedAt,
-            sourceUpdatedAt: now,
-            updatedAt: now,
-          },
-        },
-      },
+    const values = {
+      stockName: position.stockName,
+      assetType: position.assetType,
+      market: event.market,
+      currency: event.market === "us" ? "USD" : "TWD",
+      dividendYear: event.exDividendDate.getUTCFullYear(),
+      recordDate: event.recordDate,
+      paymentDate: event.paymentDate,
+      dividendPerShare: event.dividendPerShare,
+      entitledShares,
+      ...amounts,
+      status: isPaid(event, today) ? "paid" : "pending",
+      lockedAt,
+      sourceUpdatedAt: now,
+      updatedAt: now,
+    } satisfies DividendRecordSyncUpdate;
+    if (!hasDividendRecordSyncChanges(existing, values)) continue;
+
+    changes.push({
+      kind: "update",
+      id: existing._id,
+      expectedUpdatedAt: existing.updatedAt,
+      values,
     });
-    affectedIds.push(existing._id);
   }
 
-  if (dryRun || operations.length === 0) {
+  if (dryRun || changes.length === 0) {
     return {
       dryRun,
       positionCount: positions.length,
       fetchedCount: events.length,
-      insertedCount: operations.filter((operation) => "insertOne" in operation)
+      insertedCount: changes.filter((change) => change.kind === "insert")
         .length,
       modifiedCount: 0,
-      matchedCount: operations.filter((operation) => "updateOne" in operation)
+      matchedCount: changes.filter((change) => change.kind === "update")
         .length,
-      skippedCount: events.length - operations.length,
+      skippedCount: events.length - changes.length,
       verifiedCount: 0,
       syncedAt: now.toISOString(),
     } satisfies DividendSyncResult;
   }
 
-  await assertDividendRecordCollectionReady();
-  const collection = await getDividendRecordCollection();
-  const result = await collection.bulkWrite(operations, { ordered: false });
-  const verifiedDocuments = await Promise.all(
-    affectedIds.map((id) => collection.findOne({ _id: id, userId, familyMemberId })),
-  );
-
-  if (verifiedDocuments.some((document) => !document)) {
-    throw new Error("股息資料寫入後無法依 _id 完整查回驗證");
-  }
+  const result = await applyDividendRecordSyncChanges(userId, familyMemberId, changes);
 
   return {
     dryRun,
@@ -261,8 +247,8 @@ export async function syncDividendRecords(
     insertedCount: result.insertedCount,
     modifiedCount: result.modifiedCount,
     matchedCount: result.matchedCount,
-    skippedCount: events.length - operations.length,
-    verifiedCount: verifiedDocuments.length,
+    skippedCount: events.length - changes.length,
+    verifiedCount: result.verifiedCount,
     syncedAt: now.toISOString(),
   } satisfies DividendSyncResult;
 }

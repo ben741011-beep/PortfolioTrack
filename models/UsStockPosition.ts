@@ -2,12 +2,20 @@ import {
   ObjectId,
   type ClientSession,
   type Collection,
+  type IndexDescription,
   type WithId,
 } from "mongodb";
 
 import clientPromise from "@/lib/mongodb";
 
 export const US_STOCK_POSITION_COLLECTION = "usStockPositions";
+export const usStockPositionIndexes: IndexDescription[] = [
+  {
+    key: { userId: 1, familyMemberId: 1, stockCode: 1 },
+    name: "userId_1_familyMemberId_1_stockCode_1",
+    unique: true,
+  },
+];
 export const US_STOCK_ASSET_TYPES = ["stock", "stockEtf", "bondEtf"] as const;
 
 export type UsStockAssetType = (typeof US_STOCK_ASSET_TYPES)[number];

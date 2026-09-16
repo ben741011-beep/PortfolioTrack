@@ -2,6 +2,7 @@ import {
   ObjectId,
   type ClientSession,
   type Collection,
+  type IndexDescription,
   type WithId,
 } from "mongodb";
 
@@ -12,6 +13,13 @@ import {
 } from "@/lib/taiwan-stock";
 
 export const STOCK_POSITION_COLLECTION = "stockPositions";
+export const stockPositionIndexes: IndexDescription[] = [
+  {
+    key: { userId: 1, familyMemberId: 1, stockCode: 1 },
+    name: "userId_1_familyMemberId_1_stockCode_1",
+    unique: true,
+  },
+];
 
 export const STOCK_ASSET_TYPES = ["stock", "stockEtf", "bondEtf"] as const;
 

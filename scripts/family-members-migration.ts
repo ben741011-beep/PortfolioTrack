@@ -3,23 +3,28 @@ import { ObjectId } from "mongodb";
 import clientPromise from "../lib/mongodb";
 import {
   DIVIDEND_RECORD_COLLECTION,
+  dividendRecordIndexes,
   dividendRecordJsonSchema,
 } from "../models/DividendRecord";
 import {
   FAMILY_MEMBER_COLLECTION,
+  familyMemberIndexes,
   familyMemberJsonSchema,
   type FamilyMemberDocument,
 } from "../models/FamilyMember";
 import {
   STOCK_POSITION_COLLECTION,
+  stockPositionIndexes,
   stockPositionJsonSchema,
 } from "../models/StockPosition";
 import {
   STOCK_TRANSACTION_COLLECTION,
+  stockTransactionIndexes,
   stockTransactionJsonSchema,
 } from "../models/StockTransaction";
 import {
   US_STOCK_POSITION_COLLECTION,
+  usStockPositionIndexes,
   usStockPositionJsonSchema,
 } from "../models/UsStockPosition";
 
@@ -97,18 +102,9 @@ if (!collectionNames.has(FAMILY_MEMBER_COLLECTION)) {
 }
 
 const familyMembers = database.collection<FamilyMemberDocument>(FAMILY_MEMBER_COLLECTION);
-await familyMembers.createIndex(
-  { userId: 1, relationship: 1 },
-  {
-    name: "userId_1_relationship_1_self_unique",
-    unique: true,
-    partialFilterExpression: { relationship: "self" },
-  },
-);
-await familyMembers.createIndex(
-  { userId: 1, createdAt: 1 },
-  { name: "userId_1_createdAt_1" },
-);
+for (const index of familyMemberIndexes) {
+  await familyMembers.createIndex(index.key!, index);
+}
 
 const memberByUser = new Map<string, ObjectId>();
 for (const userId of userIds) {
@@ -171,23 +167,17 @@ const indexChanges = [
   {
     name: STOCK_POSITION_COLLECTION,
     old: "userId_1_stockCode_1",
-    key: { userId: 1, familyMemberId: 1, stockCode: 1 },
-    next: "userId_1_familyMemberId_1_stockCode_1",
-    unique: true,
+    index: stockPositionIndexes[0],
   },
   {
     name: US_STOCK_POSITION_COLLECTION,
     old: "userId_1_stockCode_1",
-    key: { userId: 1, familyMemberId: 1, stockCode: 1 },
-    next: "userId_1_familyMemberId_1_stockCode_1",
-    unique: true,
+    index: usStockPositionIndexes[0],
   },
   {
     name: DIVIDEND_RECORD_COLLECTION,
     old: "userId_1_source_1_stockCode_1_exDividendDate_1",
-    key: { userId: 1, familyMemberId: 1, source: 1, stockCode: 1, exDividendDate: 1 },
-    next: "userId_1_familyMemberId_1_source_1_stockCode_1_exDividendDate_1",
-    unique: true,
+    index: dividendRecordIndexes[0],
   },
 ] as const;
 
@@ -195,7 +185,7 @@ for (const change of indexChanges) {
   const collection = database.collection(change.name);
   const indexes = await collection.indexes();
   if (indexes.some((index) => index.name === change.old)) await collection.dropIndex(change.old);
-  await collection.createIndex(change.key, { name: change.next, unique: change.unique });
+  await collection.createIndex(change.index.key!, change.index);
 }
 
 const transactionCollection = database.collection(STOCK_TRANSACTION_COLLECTION);
@@ -203,14 +193,9 @@ for (const oldName of ["userId_1_occurredAt_-1", "userId_1_stockCode_1_occurredA
   const indexes = await transactionCollection.indexes();
   if (indexes.some((index) => index.name === oldName)) await transactionCollection.dropIndex(oldName);
 }
-await transactionCollection.createIndex(
-  { userId: 1, familyMemberId: 1, occurredAt: -1 },
-  { name: "userId_1_familyMemberId_1_occurredAt_-1" },
-);
-await transactionCollection.createIndex(
-  { userId: 1, familyMemberId: 1, stockCode: 1, occurredAt: -1 },
-  { name: "userId_1_familyMemberId_1_stockCode_1_occurredAt_-1" },
-);
+for (const index of stockTransactionIndexes) {
+  await transactionCollection.createIndex(index.key!, index);
+}
 
 const verified: Record<string, number> = {};
 for (const name of dataCollections) {

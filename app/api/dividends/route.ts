@@ -8,6 +8,7 @@ import {
 import { DividendSourceError } from "@/lib/dividend-sources";
 import { syncDividendRecords } from "@/lib/dividend-sync";
 import {
+  DividendSyncPersistenceError,
   listDividendRecords,
   serializeDividendRecord,
 } from "@/models/DividendRecord";
@@ -68,6 +69,14 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof DividendSyncPersistenceError) {
+      console.error("Dividend sync persistence result", error.reconciliation);
+      return NextResponse.json(
+        { error: error.message, reconciliation: error.reconciliation },
+        { status: 500 },
+      );
+    }
+
     if (error instanceof DividendSourceError) {
       console.error("Failed to fetch dividend sources", error);
       return NextResponse.json(

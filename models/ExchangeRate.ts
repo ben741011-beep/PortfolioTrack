@@ -1,8 +1,11 @@
-import { type Collection, type WithId } from "mongodb";
+import { type Collection, type IndexDescription, type WithId } from "mongodb";
 
 import clientPromise from "@/lib/mongodb";
 
 export const EXCHANGE_RATE_COLLECTION = "exchangeRates";
+export const exchangeRateIndexes: IndexDescription[] = [
+  { key: { pair: 1 }, name: "pair_1", unique: true },
+];
 export const USD_TWD_PAIR = "USD/TWD";
 
 export interface ExchangeRateDocument {

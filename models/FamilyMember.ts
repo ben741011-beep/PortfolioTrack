@@ -1,4 +1,4 @@
-import { ObjectId, type Collection, type WithId } from "mongodb";
+import { ObjectId, type Collection, type IndexDescription, type WithId } from "mongodb";
 
 import clientPromise from "@/lib/mongodb";
 
@@ -38,6 +38,16 @@ export const familyMemberJsonSchema = {
     updatedAt: { bsonType: "date" },
   },
 } as const;
+
+export const familyMemberIndexes: IndexDescription[] = [
+  {
+    key: { userId: 1, relationship: 1 },
+    name: "userId_1_relationship_1_self_unique",
+    unique: true,
+    partialFilterExpression: { relationship: "self" },
+  },
+  { key: { userId: 1, createdAt: 1 }, name: "userId_1_createdAt_1" },
+];
 
 type FamilyMemberInput = {
   name: string;
@@ -85,7 +95,10 @@ export function parseFamilyMemberInput(value: unknown): FamilyMemberInput {
     }
 
     birthDate = new Date(`${input.birthDate}T00:00:00.000Z`);
-    if (Number.isNaN(birthDate.getTime())) {
+    if (
+      Number.isNaN(birthDate.getTime()) ||
+      birthDate.toISOString().slice(0, 10) !== input.birthDate
+    ) {
       throw new TypeError("出生日期不正確");
     }
   }

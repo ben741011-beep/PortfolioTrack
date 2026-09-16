@@ -1,8 +1,11 @@
-import { type Collection, type WithId } from "mongodb";
+import { type Collection, type IndexDescription, type WithId } from "mongodb";
 
 import clientPromise from "@/lib/mongodb";
 
 export const STOCK_CLOSING_PRICE_COLLECTION = "stockClosingPrices";
+export const stockClosingPriceIndexes: IndexDescription[] = [
+  { key: { stockCode: 1 }, name: "stockCode_1", unique: true },
+];
 
 export interface StockClosingPriceDocument {
   stockCode: string;

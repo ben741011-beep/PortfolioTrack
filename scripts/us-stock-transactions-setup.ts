@@ -1,6 +1,7 @@
 import clientPromise from "../lib/mongodb";
 import {
   US_STOCK_TRANSACTION_COLLECTION,
+  usStockTransactionIndexes,
   usStockTransactionJsonSchema,
 } from "../models/UsStockTransaction";
 
@@ -83,14 +84,9 @@ async function main() {
   }
 
   const collection = database.collection(US_STOCK_TRANSACTION_COLLECTION);
-  await collection.createIndex(
-    { userId: 1, familyMemberId: 1, occurredAt: -1 },
-    { name: "userId_1_familyMemberId_1_occurredAt_-1" },
-  );
-  await collection.createIndex(
-    { userId: 1, familyMemberId: 1, stockCode: 1, occurredAt: -1 },
-    { name: "userId_1_familyMemberId_1_stockCode_1_occurredAt_-1" },
-  );
+  for (const index of usStockTransactionIndexes) {
+    await collection.createIndex(index.key!, index);
+  }
 
   const after = await inspect();
   console.log(JSON.stringify({ after }, null, 2));

@@ -1,4 +1,4 @@
-import { ObjectId, type Collection, type WithId } from "mongodb";
+import { ObjectId, type Collection, type IndexDescription, type WithId } from "mongodb";
 
 import clientPromise from "@/lib/mongodb";
 import {
@@ -11,6 +11,16 @@ import {
 } from "@/models/UsStockPosition";
 
 export const US_STOCK_TRANSACTION_COLLECTION = "usStockTransactions";
+export const usStockTransactionIndexes: IndexDescription[] = [
+  {
+    key: { userId: 1, familyMemberId: 1, occurredAt: -1 },
+    name: "userId_1_familyMemberId_1_occurredAt_-1",
+  },
+  {
+    key: { userId: 1, familyMemberId: 1, stockCode: 1, occurredAt: -1 },
+    name: "userId_1_familyMemberId_1_stockCode_1_occurredAt_-1",
+  },
+];
 
 export interface UsStockTransactionDocument {
   userId: string;
