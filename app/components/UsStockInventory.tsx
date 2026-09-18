@@ -136,7 +136,7 @@ export function UsStockInventory({
   }, [loadPositions]);
 
   const formatTwd = (value: number) =>
-    currencyFormatter.format(value * (exchangeRate?.rate ?? 0));
+    exchangeRate ? currencyFormatter.format(value * exchangeRate.rate) : "—";
 
   return (
     <main
@@ -153,7 +153,7 @@ export function UsStockInventory({
               美股庫存管理
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              美股與 ETF 上次手動更新的報價以美元顯示；投入成本、市值與損益換算為新台幣。
+              每檔美股與 ETF 的投入成本、市值及損益以美元顯示；頂部合計金額換算為新台幣。
             </p>
             {exchangeRate ? (
               <p className="mt-2 text-xs text-slate-500">
@@ -164,13 +164,13 @@ export function UsStockInventory({
 
           <div className="grid w-full grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:max-w-3xl lg:grid-cols-4">
             <SummaryCard label="庫存筆數" value={numberFormatter.format(summary.count)} />
-            <SummaryCard label="總投資金額" value={formatTwd(summary.totalPrincipal)} />
+            <SummaryCard label="總投資金額（TWD）" value={formatTwd(summary.totalPrincipal)} />
             <SummaryCard
-              label="持股市值"
+              label="持股市值（TWD）"
               value={formatTwd(summary.totalHoldingMarketValue)}
             />
             <SummaryCard
-              label="未實現損益"
+              label="未實現損益（TWD）"
               value={formatTwd(summary.totalUnrealizedProfitLoss)}
               valueClassName={
                 summary.totalUnrealizedProfitLoss >= 0
@@ -188,9 +188,10 @@ export function UsStockInventory({
                 <h2 className="text-lg font-bold">目前庫存</h2>
                 <div className="mt-2 space-y-1 text-xs leading-5 text-slate-500">
                   <p>頁面載入只讀取資料庫；按下更新按鈕才會抓取並寫入最新報價。</p>
-                  <p>持股市值（TWD）＝ 股數 × 最新報價（USD）× 美元匯率</p>
-                  <p>未實現損益 ＝ 持股市值 − 投資金額</p>
+                  <p>每檔持股市值（USD）＝ 股數 × 最新報價（USD）</p>
+                  <p>每檔未實現損益（USD）＝ 持股市值 − 投資金額</p>
                   <p>損益率 ＝ 未實現損益 ÷ 投資金額</p>
+                  <p>頂部合計金額依顯示的美元匯率換算為台幣。</p>
                 </div>
               </div>
               <ClosingPriceRefreshButton
@@ -250,10 +251,10 @@ export function UsStockInventory({
                         </div>
                         <div className="text-right">
                           <dt className="text-xs font-medium text-slate-500">
-                            投資金額
+                            投資金額（USD）
                           </dt>
                           <dd className="mt-1 break-words font-semibold tabular-nums text-slate-900">
-                            {formatTwd(item.principal)}
+                            {usdPriceFormatter.format(item.principal)}
                           </dd>
                         </div>
                         <div>
@@ -279,11 +280,11 @@ export function UsStockInventory({
                         </div>
                         <div className="text-right">
                           <dt className="text-xs font-medium text-slate-500">
-                            持股市值
+                            持股市值（USD）
                           </dt>
                           <dd className="mt-1 break-words font-bold tabular-nums text-slate-950">
                             {item.valuation
-                              ? formatTwd(
+                              ? usdPriceFormatter.format(
                                   item.valuation.holdingMarketValue,
                                 )
                               : "—"}
@@ -291,7 +292,7 @@ export function UsStockInventory({
                         </div>
                         <div>
                           <dt className="text-xs font-medium text-slate-500">
-                            未實現損益
+                            未實現損益（USD）
                           </dt>
                           <dd
                             className={`mt-1 break-words font-bold tabular-nums ${
@@ -303,7 +304,7 @@ export function UsStockInventory({
                             }`}
                           >
                             {item.valuation
-                              ? formatTwd(
+                              ? usdPriceFormatter.format(
                                   item.valuation.unrealizedProfitLoss,
                                 )
                               : "—"}
@@ -339,12 +340,12 @@ export function UsStockInventory({
                         <th className="px-7 py-4 font-semibold">股票</th>
                         <th className="px-5 py-4 font-semibold">種類</th>
                         <th className="px-5 py-4 text-right font-semibold">股數</th>
-                        <th className="px-5 py-4 text-right font-semibold">投資金額</th>
+                        <th className="px-5 py-4 text-right font-semibold">投資金額（USD）</th>
                         <th className="px-4 py-4 text-right font-semibold">
                           最新報價（USD）
                         </th>
-                        <th className="px-4 py-4 text-right font-semibold">持股市值</th>
-                        <th className="px-4 py-4 text-right font-semibold">未實現損益</th>
+                        <th className="px-4 py-4 text-right font-semibold">持股市值（USD）</th>
+                        <th className="px-4 py-4 text-right font-semibold">未實現損益（USD）</th>
                         <th className="w-28 px-4 py-4 text-right font-semibold">損益率</th>
                       </tr>
                     </thead>
@@ -364,7 +365,7 @@ export function UsStockInventory({
                             {shareFormatter.format(item.shares)}
                           </td>
                           <td className="px-5 py-5 text-right font-medium tabular-nums">
-                            {formatTwd(item.principal)}
+                            {usdPriceFormatter.format(item.principal)}
                           </td>
                           <td className="px-4 py-5 text-right font-medium tabular-nums">
                             {item.valuation ? (
@@ -384,7 +385,7 @@ export function UsStockInventory({
                           </td>
                           <td className="px-4 py-5 text-right font-bold tabular-nums">
                             {item.valuation
-                              ? formatTwd(
+                              ? usdPriceFormatter.format(
                                   item.valuation.holdingMarketValue,
                                 )
                               : "—"}
@@ -399,7 +400,7 @@ export function UsStockInventory({
                             }`}
                           >
                             {item.valuation
-                              ? formatTwd(
+                              ? usdPriceFormatter.format(
                                   item.valuation.unrealizedProfitLoss,
                                 )
                               : "—"}
