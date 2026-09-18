@@ -95,7 +95,7 @@ export function StockInventory({
               股票庫存管理
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              檢視目前股數、投入成本、最近收盤價與即時損益。
+              檢視目前股數、投入成本、上次手動更新的報價與未實現損益。
             </p>
           </div>
 
@@ -119,7 +119,7 @@ export function StockInventory({
               </p>
             </div>
             <div className="min-w-0 rounded-xl border border-slate-300 bg-white px-4 py-4 shadow-sm">
-              <p className="text-xs text-slate-500">即時損益</p>
+              <p className="text-xs text-slate-500">未實現損益</p>
               <p
                 className={`mt-1 break-words text-lg font-bold tracking-tight tabular-nums ${
                   totalUnrealizedProfitLoss >= 0
@@ -138,10 +138,10 @@ export function StockInventory({
             <div>
               <h2 className="text-lg font-bold">目前庫存</h2>
               <div className="mt-3 space-y-1 text-xs leading-5 text-slate-500">
-                <p>頁面載入只讀取資料庫；按下更新按鈕才會抓取並寫入收盤價。</p>
-                <p>持股市值 ＝ 股數 × 最近收盤價 − 估算賣出手續費 − 交易稅</p>
-                <p>即時損益 ＝ 持股市值 − 投資金額</p>
-                <p>損益率 ＝ 即時損益 ÷ 投資金額</p>
+                <p>頁面載入只讀取資料庫；按下更新按鈕才會抓取並寫入最新報價。</p>
+                <p>持股市值 ＝ 股數 × 最新報價 − 估算賣出手續費 − 交易稅</p>
+                <p>未實現損益 ＝ 持股市值 − 投資金額</p>
+                <p>損益率 ＝ 未實現損益 ÷ 投資金額</p>
                 <p>
                   手續費以 0.1425% 估算；交易稅：股票 0.3%、股票 ETF
                   0.1%、債券 ETF 0%。
@@ -214,12 +214,12 @@ export function StockInventory({
                       </div>
                       <div>
                         <dt className="text-xs font-medium text-slate-500">
-                          最近收盤價
+                          最新報價
                         </dt>
                         <dd className="mt-1 font-semibold tabular-nums text-slate-900">
                           {item.valuation ? (
                             <>
-                              <span>${priceFormatter.format(item.valuation.close)}</span>
+                              <span>${priceFormatter.format(item.valuation.price)}</span>
                               <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
                                 {item.valuation.quoteDate}
                               </span>
@@ -243,7 +243,7 @@ export function StockInventory({
                       </div>
                       <div>
                         <dt className="text-xs font-medium text-slate-500">
-                          即時損益
+                          未實現損益
                         </dt>
                         <dd
                           className={`mt-1 break-words font-bold tabular-nums ${
@@ -293,10 +293,10 @@ export function StockInventory({
                       <th className="px-5 py-4 text-right font-semibold">股數</th>
                       <th className="px-5 py-4 text-right font-semibold">投資金額</th>
                       <th className="px-4 py-4 text-right font-semibold">
-                        最近收盤價
+                        最新報價
                       </th>
                       <th className="px-4 py-4 text-right font-semibold">持股市值</th>
-                      <th className="px-4 py-4 text-right font-semibold">即時損益</th>
+                      <th className="px-4 py-4 text-right font-semibold">未實現損益</th>
                       <th className="w-28 px-4 py-4 text-right font-semibold">損益率</th>
                     </tr>
                   </thead>
@@ -321,7 +321,7 @@ export function StockInventory({
                         <td className="px-4 py-5 text-right font-medium tabular-nums">
                           {item.valuation ? (
                             <div>
-                              <p>${priceFormatter.format(item.valuation.close)}</p>
+                              <p>${priceFormatter.format(item.valuation.price)}</p>
                               <p className="mt-1 text-[11px] font-normal text-slate-500">
                                 {item.valuation.quoteDate}
                               </p>

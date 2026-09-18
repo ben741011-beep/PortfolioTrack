@@ -1,6 +1,6 @@
 import {
   calculateUsStockValuation,
-  getStoredUsClosingQuotes,
+  getStoredUsMarketQuotes,
 } from "@/lib/us-stock-valuation";
 import {
   serializeUsStockPosition,
@@ -11,7 +11,7 @@ import type { WithId } from "mongodb";
 export async function serializeUsStockPositionsWithValuations(
   documents: WithId<UsStockPositionDocument>[],
 ) {
-  const quotes = await getStoredUsClosingQuotes(
+  const quotes = await getStoredUsMarketQuotes(
     documents.map((document) => document.stockCode),
   );
   const items = documents.map((document) => {

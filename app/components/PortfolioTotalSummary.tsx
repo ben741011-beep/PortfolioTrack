@@ -94,7 +94,7 @@ export function PortfolioTotalSummary({
           value: currencyFormatter.format(data.summary.totalHoldingMarketValue),
         },
         {
-          label: "即時損益",
+          label: "未實現損益",
           value: currencyFormatter.format(data.summary.totalUnrealizedProfitLoss),
           valueClassName:
             data.summary.totalUnrealizedProfitLoss >= 0

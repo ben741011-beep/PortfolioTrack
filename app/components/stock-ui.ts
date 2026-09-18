@@ -8,7 +8,7 @@ export type StockPosition = {
   shares: number;
   principal: number;
   valuation: {
-    close: number;
+    price: number;
     quoteDate: string;
     grossMarketValue: number;
     estimatedSellingFee: number;

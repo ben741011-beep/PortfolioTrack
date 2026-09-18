@@ -5,8 +5,8 @@ import {
   getAuthenticatedPortfolioContext,
   unauthorizedResponse,
 } from "@/lib/auth-session";
-import { refreshClosingQuotes } from "@/lib/stock-valuation";
-import { refreshUsClosingQuotes } from "@/lib/us-stock-valuation";
+import { refreshTwMarketQuotes } from "@/lib/stock-valuation";
+import { refreshUsMarketQuotes } from "@/lib/us-stock-valuation";
 import { listStockPositions } from "@/models/StockPosition";
 import { listUsStockPositions } from "@/models/UsStockPosition";
 
@@ -57,8 +57,8 @@ export async function POST(request: Request) {
     const stockCodes = documents.map((document) => document.stockCode);
     const quotes =
       market === "tw"
-        ? await refreshClosingQuotes(stockCodes)
-        : await refreshUsClosingQuotes(stockCodes);
+        ? await refreshTwMarketQuotes(stockCodes)
+        : await refreshUsMarketQuotes(stockCodes);
     const items = [...quotes].map(([stockCode, quote]) => ({
       stockCode,
       ...quote,
@@ -72,8 +72,8 @@ export async function POST(request: Request) {
         {
           error:
             market === "tw"
-              ? "無法取得台股收盤價，資料庫未更新"
-              : "無法取得美股收盤價，資料庫未更新",
+              ? "無法取得台股最新報價，資料庫未更新"
+              : "無法取得美股最新報價，資料庫未更新",
           requestedCount: stockCodes.length,
           updatedCount: 0,
           failedStockCodes,
@@ -94,9 +94,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    console.error("Failed to refresh closing prices", error);
+    console.error("Failed to refresh stock prices", error);
     return NextResponse.json(
-      { error: "更新收盤價失敗，資料庫未完成更新" },
+      { error: "更新行情失敗，資料庫未完成更新" },
       { status: 500 },
     );
   }
