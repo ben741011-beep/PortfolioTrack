@@ -11,6 +11,7 @@ import {
   type StockPosition,
 } from "@/app/components/stock-ui";
 import { UsStockInitialPositionForm } from "@/app/components/UsStockInitialPositionForm";
+import { StockTransactionHistory } from "@/app/components/StockTransactionHistory";
 
 type Message = {
   text: string;
@@ -81,7 +82,7 @@ function MessageText({ message }: { message: Message | null }) {
 }
 
 export function StockOperations() {
-  const [operationMode, setOperationMode] = useState<"trade" | "initial">(
+  const [operationMode, setOperationMode] = useState<"trade" | "initial" | "history">(
     "trade",
   );
   const [initialMarket, setInitialMarket] = useState<"taiwan" | "us">(
@@ -303,20 +304,21 @@ export function StockOperations() {
             庫存異動
           </p>
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            新增庫存與股票買賣
+            股票交易管理
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            初始庫存用來建立目前持股；後續買入與賣出則會依成交價自動整合庫存成本。
+            建立初始庫存、記錄後續買賣，並查詢每筆交易的記錄時間與成交價格。
           </p>
         </header>
 
         <fieldset className="mb-8">
           <legend className="mb-2 text-sm font-semibold">選擇操作</legend>
-          <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-200/70 p-1.5">
+          <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-200/70 p-1.5">
             {(
               [
                 { label: "買賣", value: "trade" },
                 { label: "新增庫存", value: "initial" },
+                { label: "交易紀錄", value: "history" },
               ] as const
             ).map((mode) => (
               <label key={mode.value} className="cursor-pointer">
@@ -337,7 +339,9 @@ export function StockOperations() {
         </fieldset>
 
         <div>
-          {operationMode === "initial" ? (
+          {operationMode === "history" ? (
+            <StockTransactionHistory />
+          ) : operationMode === "initial" ? (
           <section className="rounded-2xl border border-slate-300 bg-white p-5 shadow-sm sm:p-7">
             <div className="mb-6">
               <p className="text-xs font-bold tracking-[0.14em] text-emerald-700">

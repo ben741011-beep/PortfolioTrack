@@ -9,7 +9,7 @@ import { FamilyMemberSwitcher } from "@/app/components/FamilyMemberSwitcher";
 const navigationItems = [
   { href: "/", label: "市場統計", compactLabel: "統計" },
   { href: "/inventory", label: "庫存管理", compactLabel: "庫存" },
-  { href: "/transactions", label: "新增與買賣", compactLabel: "買賣" },
+  { href: "/transactions", label: "交易管理", compactLabel: "交易" },
   { href: "/dividends", label: "股息紀錄", compactLabel: "股息" },
   { href: "/family", label: "家庭成員", compactLabel: "家庭" },
 ] as const;
