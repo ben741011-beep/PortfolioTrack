@@ -8,6 +8,7 @@ import { FamilyMemberSwitcher } from "@/app/components/FamilyMemberSwitcher";
 
 const navigationItems = [
   { href: "/", label: "市場統計", compactLabel: "統計" },
+  { href: "/us-economic-calendar", label: "美國數據", compactLabel: "美數" },
   { href: "/inventory", label: "庫存管理", compactLabel: "庫存" },
   { href: "/transactions", label: "交易管理", compactLabel: "交易" },
   { href: "/dividends", label: "股息紀錄", compactLabel: "股息" },
@@ -69,7 +70,12 @@ export function SiteHeader() {
             className="flex min-w-max items-center gap-1 pb-2 text-xs sm:text-sm"
           >
             {navigationItems
-              .filter((item) => item.href === "/" || Boolean(session))
+              .filter(
+                (item) =>
+                  item.href === "/" ||
+                  item.href === "/us-economic-calendar" ||
+                  Boolean(session),
+              )
               .map((item) => {
                 const isActive = pathname === item.href;
 
