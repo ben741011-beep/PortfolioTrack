@@ -10,6 +10,8 @@
     "auth:bootstrap": "tsx --env-file=.env.local scripts/auth-bootstrap.ts",
     "family:migrate": "tsx --env-file=.env.local scripts/family-members-migration.ts",
     "dividends:setup": "tsx --env-file=.env.local scripts/dividend-records-setup.ts",
+    "economic-events:setup": "tsx --env-file=.env.local scripts/us-economic-events-setup.ts",
+    "economic-events:refresh": "tsx --env-file=.env.local scripts/us-economic-events-refresh.ts",
     "us-transactions:setup": "tsx --env-file=.env.local scripts/us-stock-transactions-setup.ts"
   },
   "dependencies": {
