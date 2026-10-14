@@ -8,10 +8,14 @@ import {
 
 const BLS_CPI_URL = "https://www.bls.gov/schedule/news_release/cpi.htm";
 const BLS_PPI_URL = "https://www.bls.gov/schedule/news_release/ppi.htm";
+const BLS_CALENDAR_URL =
+  "https://www.bls.gov/schedule/news_release/bls.ics";
 const BEA_PCE_URL = "https://www.bea.gov/news/schedule/full";
 const FED_FOMC_URL =
   "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm";
 const SOURCE_TIME_ZONE = "America/New_York" as const;
+const OFFICIAL_FETCH_USER_AGENT =
+  "PortfolioTrack/1.0 (+https://portfolio-track-jade.vercel.app)";
 
 type ParsedSourceEvent = Omit<UsEconomicEventInput, "sourcePageHash" | "fetchedAt">;
 
@@ -41,6 +45,21 @@ const MONTHS: Record<string, number> = {
   dec: 12,
 };
 
+const FULL_MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+] as const;
+
 function pad(value: number) {
   return String(value).padStart(2, "0");
 }
@@ -63,22 +82,6 @@ function parseMonth(value: string) {
   const month = MONTHS[normalized];
   if (!month) throw new Error(`無法解析月份：${value}`);
   return month;
-}
-
-function parseMonthYear(value: string) {
-  const match = value.match(/^([A-Za-z]+)\s+([0-9]{4})$/);
-  if (!match) throw new Error(`無法解析參考月份：${value}`);
-  return { year: Number(match[2]), month: parseMonth(match[1]) };
-}
-
-function parseReleaseDate(value: string) {
-  const match = value.match(/^([A-Za-z]+)\.?\s+([0-9]{1,2}),\s+([0-9]{4})$/);
-  if (!match) throw new Error(`無法解析發布日期：${value}`);
-  return {
-    year: Number(match[3]),
-    month: parseMonth(match[1]),
-    day: Number(match[2]),
-  };
 }
 
 function parse12HourTime(value: string) {
@@ -171,47 +174,75 @@ function buildEvent({
   };
 }
 
-export function parseBlsSchedule(
-  html: string,
-  eventType: "CPI" | "PPI",
-  sourceUrl: string,
-) {
-  const events: ParsedSourceEvent[] = [];
-  const rowMatches = html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi);
-  for (const rowMatch of rowMatches) {
-    const cells = [...rowMatch[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(
-      (match) => decodeHtml(match[1]),
+function previousMonth(year: number, month: number) {
+  return month === 1
+    ? { year: year - 1, month: 12 }
+    : { year, month: month - 1 };
+}
+
+export function parseBlsCalendar(ics: string) {
+  const unfolded = ics.replace(/\r?\n[ \t]/g, "").replace(/\r/g, "");
+  const groups: Record<"CPI" | "PPI", ParsedSourceEvent[]> = {
+    CPI: [],
+    PPI: [],
+  };
+
+  for (const match of unfolded.matchAll(
+    /BEGIN:VEVENT\n([\s\S]*?)\nEND:VEVENT/g,
+  )) {
+    const summary = match[1].match(/^SUMMARY:(.+)$/m)?.[1]?.trim();
+    const eventType =
+      summary === "Consumer Price Index"
+        ? "CPI"
+        : summary === "Producer Price Index"
+          ? "PPI"
+          : null;
+    if (!eventType) continue;
+
+    const dateTime = match[1].match(
+      /^DTSTART(?:;TZID=(?:US-Eastern|America\/New_York))?:(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(?:\d{2})?$/m,
     );
-    if (cells.length !== 3 || !/^[A-Za-z]+\s+[0-9]{4}$/.test(cells[0])) {
-      continue;
+    if (!dateTime) {
+      throw new Error(`${eventType} 官方 iCalendar 發布時間無法解析`);
     }
 
-    const reference = parseMonthYear(cells[0]);
-    const release = parseReleaseDate(cells[1]);
-    const time = parse12HourTime(cells[2]);
-    events.push(
+    const releaseYear = Number(dateTime[1]);
+    const releaseMonth = Number(dateTime[2]);
+    const reference = previousMonth(releaseYear, releaseMonth);
+    const referenceMonthName = FULL_MONTH_NAMES[reference.month - 1];
+    if (!referenceMonthName) {
+      throw new Error(`${eventType} 官方 iCalendar 參考月份不正確`);
+    }
+    const sourcePeriodLabel = `${referenceMonthName} ${reference.year}`;
+
+    groups[eventType].push(
       buildEvent({
         eventType,
         referenceYear: reference.year,
         referenceMonth: reference.month,
-        sourcePeriodLabel: cells[0],
+        sourcePeriodLabel,
         sourceReleaseName:
           eventType === "CPI" ? "Consumer Price Index" : "Producer Price Index",
-        releaseYear: release.year,
-        releaseMonth: release.month,
-        releaseDay: release.day,
-        releaseHour: time.hour,
-        releaseMinute: time.minute,
+        releaseYear,
+        releaseMonth,
+        releaseDay: Number(dateTime[3]),
+        releaseHour: Number(dateTime[4]),
+        releaseMinute: Number(dateTime[5]),
         sourceAgency: "BLS",
-        sourceUrl,
+        sourceUrl: eventType === "CPI" ? BLS_CPI_URL : BLS_PPI_URL,
       }),
     );
   }
 
-  if (events.length < 10) {
-    throw new Error(`${eventType} 官方時程解析筆數異常：${events.length}`);
+  for (const eventType of ["CPI", "PPI"] as const) {
+    if (groups[eventType].length < 10) {
+      throw new Error(
+        `${eventType} 官方 iCalendar 解析筆數異常：${groups[eventType].length}`,
+      );
+    }
   }
-  return events;
+
+  return groups;
 }
 
 export function parseBeaPceSchedule(html: string, sourceUrl: string, year: number) {
@@ -330,12 +361,15 @@ function hashEvents(events: ParsedSourceEvent[]) {
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
-async function fetchOfficialPage(url: string) {
+async function fetchOfficialPage(
+  url: string,
+  accept = "text/html,application/xhtml+xml",
+) {
   const response = await fetch(url, {
     cache: "no-store",
     headers: {
-      Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "PortfolioTrack/1.0 economic-calendar-refresh",
+      Accept: accept,
+      "User-Agent": OFFICIAL_FETCH_USER_AGENT,
     },
     signal: AbortSignal.timeout(15_000),
   });
@@ -355,16 +389,19 @@ function currentNewYorkYear(now: Date) {
 }
 
 export async function fetchOfficialUsEconomicEvents(now = new Date()) {
-  const [cpiHtml, ppiHtml, pceHtml, fomcHtml] = await Promise.all([
-    fetchOfficialPage(BLS_CPI_URL),
-    fetchOfficialPage(BLS_PPI_URL),
+  const [blsCalendar, pceHtml, fomcHtml] = await Promise.all([
+    fetchOfficialPage(
+      BLS_CALENDAR_URL,
+      "text/calendar,text/plain;q=0.9,*/*;q=0.8",
+    ),
     fetchOfficialPage(BEA_PCE_URL),
     fetchOfficialPage(FED_FOMC_URL),
   ]);
   const year = currentNewYorkYear(now);
+  const blsGroups = parseBlsCalendar(blsCalendar);
   const sourceGroups = [
-    parseBlsSchedule(cpiHtml, "CPI", BLS_CPI_URL),
-    parseBlsSchedule(ppiHtml, "PPI", BLS_PPI_URL),
+    blsGroups.CPI,
+    blsGroups.PPI,
     parseBeaPceSchedule(pceHtml, BEA_PCE_URL, year),
     parseFedFomcSchedule(fomcHtml, FED_FOMC_URL, year),
   ];
